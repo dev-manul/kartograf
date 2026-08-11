@@ -79,6 +79,16 @@ func nonNil[T any](s []T) []T {
 	return s
 }
 
+// resolveFQN expands a short name ("Foo::bar()", "Button") into the
+// full FQN via the symbol table, so every graph tool honors the
+// "a bare trailing segment also works" promise, not just get_symbol.
+func resolveFQN(q *query.Engine, fqn string) string {
+	if hits, err := q.GetSymbol(fqn); err == nil && len(hits) > 0 {
+		return hits[0].FQN
+	}
+	return fqn
+}
+
 func register(s *mcp.Server, q *query.Engine) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "search_symbols",
@@ -126,7 +136,7 @@ func register(s *mcp.Server, q *query.Engine) {
 		Description: "Find all places referencing a symbol (calls, instantiations, type hints, instanceof, " +
 			"constant access, inheritance). resolved=false rows are heuristic matches.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in fqnIn) (*mcp.CallToolResult, edgesOut, error) {
-		hits, err := q.References(in.FQN, limit(in.Limit))
+		hits, err := q.References(resolveFQN(q, in.FQN), limit(in.Limit))
 		return nil, edgesOut{Results: nonNil(hits)}, err
 	})
 
@@ -135,7 +145,7 @@ func register(s *mcp.Server, q *query.Engine) {
 		Description: "Who calls this method/function? For methods the class hierarchy is considered: calls via " +
 			"a parent interface/class reference are included and marked resolved=false.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in fqnIn) (*mcp.CallToolResult, edgesOut, error) {
-		hits, err := q.Callers(in.FQN, limit(in.Limit))
+		hits, err := q.Callers(resolveFQN(q, in.FQN), limit(in.Limit))
 		return nil, edgesOut{Results: nonNil(hits)}, err
 	})
 
@@ -143,7 +153,7 @@ func register(s *mcp.Server, q *query.Engine) {
 		Name:        "get_callees",
 		Description: "What does this method/function call or instantiate? Lists outgoing call edges in source order.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in fqnIn) (*mcp.CallToolResult, edgesOut, error) {
-		hits, err := q.Callees(in.FQN, limit(in.Limit))
+		hits, err := q.Callees(resolveFQN(q, in.FQN), limit(in.Limit))
 		return nil, edgesOut{Results: nonNil(hits)}, err
 	})
 
@@ -156,7 +166,7 @@ func register(s *mcp.Server, q *query.Engine) {
 		Description: "Full inheritance neighborhood of a class/interface/trait: transitive ancestors " +
 			"(what it extends/implements/uses) and descendants (subclasses and implementations).",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in fqnIn) (*mcp.CallToolResult, hierarchyOut, error) {
-		up, down, err := q.Hierarchy(in.FQN)
+		up, down, err := q.Hierarchy(resolveFQN(q, in.FQN))
 		return nil, hierarchyOut{Ancestors: nonNil(up), Descendants: nonNil(down)}, err
 	})
 
