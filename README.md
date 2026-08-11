@@ -1,116 +1,134 @@
 # kartograf
 
-Строит карту кода проекта (символы, ссылки, граф вызовов) и отдаёт её
-AI-агентам через MCP. Парсинг — tree-sitter, ядро языконезависимое;
-сейчас поддержан PHP, дальше — TS/JS и Go.
+[Русская версия](README.ru.md)
 
-## Статус
+Builds a code map of a project (symbols, references, call graph) and
+serves it to AI agents over MCP. Parsing is tree-sitter based, the
+core is language-agnostic; **PHP** and **Go** adapters are implemented,
+TS/JS is next.
 
-Готовы фазы 1–4 (извлечение символов, инкрементальный индексатор на
-SQLite + FTS5, резолв имён с рёбрами графа, MCP-сервер по stdio) и два
-языковых адаптера: **PHP** и **Go**.
+## Features
 
-Go-адаптер: FQN по import-path (`module/pkg.Type.Method()`, модули
-читаются из go.mod, включая вложенные), embedding структур/интерфейсов
-как иерархия, вызовы через алиасы импортов, ресиверы, типизированные
-параметры и one-hop через поля структур (`s.repo.Get()`).
+- Symbol extraction: classes/interfaces/traits/enums (PHP), structs/
+  interfaces/type aliases (Go), methods, properties (incl. constructor
+  promotion), constants, functions, doc comments.
+- Reference edges resolved at extraction time with file-local
+  knowledge: instantiations, static and instance calls (`$this->`,
+  `self::`, `parent::`, typed properties and parameters, one hop
+  through struct fields in Go), constant access, type hints,
+  `instanceof`, attributes, inheritance and trait/embedding facts.
+- Incremental indexing into SQLite + FTS5: stat fast path
+  (mtime+size), sha256 as the source of truth, so branch switches
+  reindex only real diffs. Vendor code is indexed shallow
+  (declarations + hierarchy, no call graph).
+- MCP server (stdio) with graph query tools; hierarchy-aware callers
+  via recursive CTEs.
+- Optional enrichment layer (`kartograf enrich`): full type inference
+  on top of the file-local AST heuristics.
 
-Плюс слой точности (`kartograf enrich`): полный тайп-инференс поверх
-file-local AST-эвристик. Рёбра хранятся в
-`.kartograf/enrich.<source>.jsonl` в корне проекта (коммитить или
-игнорировать — на ваше усмотрение) и автоматически реимпортируются
-`index`/`serve` при изменении файла.
+## Usage
 
-- `kartograf enrich go` — go/packages+go/types в процессе: точные
-  вызовы (интерфейсные, через поля из других файлов) и структурные
-  `implements`-рёбра (иерархия интерфейсов Go без них невозможна).
-- `kartograf enrich php` — генерирует правило PHPStan в
-  `.kartograf/phpstan/` и запускает `vendor/bin/phpstan` с конфигом
-  проекта. Рёбра едут как псевдо-ошибки с identifier `kartograf.edge`
-  через JSON-вывод — result cache PHPStan делает повторные прогоны
-  инкрементальными. Разрешает вызовы через нетипизированные свойства
-  (тип выводится из конструктора). Если php нет локально — запустите
-  phpstan где угодно и импортируйте: `kartograf enrich import
-  <file> --source phpstan` (контейнерные пути маппятся автоматически).
-
-Дорожная карта: watch-режим (fsnotify) → адаптер TS/JS.
-
-## Использование
-
-Сборка требует build-тег `sqlite_fts5` (FTS5 в mattn/go-sqlite3);
-без тега компиляция намеренно падает с понятной ошибкой. Проще через
-Makefile:
+The build requires the `sqlite_fts5` build tag (FTS5 support in
+mattn/go-sqlite3); without it compilation fails on purpose with a
+readable error. Use the Makefile:
 
 ```sh
 make install        # go install -tags sqlite_fts5 ./cmd/kartograf
-make check          # build + vet + test + fmt
+make check          # vet + test + fmt + build
 
-kartograf index [root]                      # построить/обновить индекс
-kartograf index --rebuild                   # с нуля
-kartograf serve [root]                      # MCP-сервер на stdio (сам доиндексирует)
-kartograf outline path/to/File.php          # символы файла
-kartograf outline --json path/to/File.php   # полный FileIndex в JSON
+kartograf index [root]                      # build/update the index
+kartograf index --rebuild                   # from scratch
+kartograf serve [root]                      # MCP server on stdio (updates the index on start)
+kartograf outline path/to/File.php          # symbols of one file
+kartograf outline --json path/to/File.php   # full FileIndex as JSON
 ```
 
-Регистрация в Claude Code:
+Registering in Claude Code:
 
 ```sh
 claude mcp add kartograf -- kartograf serve /path/to/project
 ```
 
-## MCP-тулзы
+The index lives in the user cache dir
+(`~/Library/Caches/kartograf/<project>-<hash>/index.db` on macOS,
+`~/.cache/...` on Linux) — a derived artifact, never committed. On a
+schema version change the database is silently rebuilt.
 
-| Тулза | Что делает |
+Reference numbers on a PHP monolith (~79k files incl. vendor, ~885k
+symbols): cold index ~19s (bulk mode: batched inserts, indexes and FTS
+built once after the load), warm run ~1.5s.
+
+## MCP tools
+
+| Tool | What it does |
 |---|---|
-| `search_symbols` | FTS-поиск по именам/FQN/докблокам, фильтр по kind |
-| `get_symbol` | Декларация по FQN (или хвосту имени): сигнатура, док, члены класса, исходник |
-| `find_references` | Все ссылки на символ: вызовы, new, type hints, instanceof, константы |
-| `get_callers` | Кто вызывает метод/функцию; для методов учитывается иерархия классов |
-| `get_callees` | Что вызывает/инстанцирует символ |
-| `class_hierarchy` | Транзитивные предки и потомки (реализации интерфейса) |
-| `file_outline` | Символы файла |
+| `search_symbols` | FTS over names/FQNs/docblocks (camelCase-aware), kind filter |
+| `get_symbol` | Declaration by FQN (or name suffix): signature, doc, members, source |
+| `find_references` | Every reference to a symbol: calls, new, type hints, instanceof, constants |
+| `get_callers` | Who calls a method/function; class hierarchy is taken into account |
+| `get_callees` | What a symbol calls or instantiates |
+| `class_hierarchy` | Transitive ancestors and descendants (interface implementations) |
+| `file_outline` | Symbols declared in a file |
 
-Рёбра с `resolved=false` — эвристика (вызов через `parent::`, выведенный
-тип получателя, глобальный фолбэк функций); точные рёбра резолвятся по
-правилам PHP из use-карты и неймспейса файла.
+Edges with `resolved=false` are heuristic (calls via `parent::`,
+inferred receiver types, global function fallback); exact edges follow
+the language's name-resolution rules using the file's import map and
+namespace.
 
-Индекс лежит в кэше пользователя (`~/Library/Caches/kartograf/<проект>-<hash>/index.db`
-на macOS, `~/.cache/...` на Linux) — это производный артефакт, в гит не
-коммитится. Инкрементальность: stat-фастпас по mtime+size, при
-расхождении — сверка sha256 контента; при смене версии схемы база
-молча пересобирается.
+## Enrichment layer
 
-Ориентиры на монолите api (~79k PHP-файлов с vendor, ~885k символов):
-холодный индекс ~19 с (bulk-режим: батчевые вставки, индексы и FTS
-строятся один раз после заливки), тёплый прогон ~1.5 с.
+`kartograf enrich` adds edges from full type-inference tools. They are
+stored in `.kartograf/enrich.<source>.jsonl` at the project root
+(commit it or gitignore it — your choice) and are re-imported
+automatically by `index`/`serve` whenever the file changes; deleting
+the file retires its edges.
 
-### Конфиг проекта — `.kartograf.yml` (опционально)
+- `kartograf enrich go` — in-process go/packages + go/types pass:
+  exact calls (interface calls, fields typed in other files) and
+  structural `implements` edges (Go interface hierarchy is impossible
+  to derive from single-file AST).
+- `kartograf enrich php` — scaffolds a PHPStan rule into
+  `.kartograf/phpstan/` and runs `vendor/bin/phpstan` with the
+  project's own config. Edges travel as pseudo-errors with the
+  identifier `kartograf.edge` through the JSON output, so PHPStan's
+  result cache makes repeat runs incremental. Resolves calls through
+  untyped properties (types inferred from constructors). If PHP is not
+  available locally, run phpstan wherever it works and import with
+  `kartograf enrich import <file> --source phpstan` (container paths
+  are mapped automatically).
+
+## Project config — `.kartograf.yml` (optional)
 
 ```yaml
-include: []        # директории для индексации (по умолчанию весь корень)
-exclude: []        # доп. gitignore-паттерны
-vendor: index      # index (по умолчанию, с пометкой vendor) | skip
+include: []        # directories to index (default: the whole root)
+exclude: []        # extra gitignore-style patterns
+vendor: index      # index (default, flagged as vendor) | skip
 ```
 
-`.gitignore` проекта уважается; vendor/node_modules индексируются в
-обход gitignore и помечаются флагом vendor.
+The project's `.gitignore` is respected; vendor/node_modules are
+indexed bypassing gitignore and flagged as vendor.
 
-## Архитектура
+## Architecture
 
-- `internal/core/model` — языконезависимая модель: `Symbol`, `Import`,
-  `TypeRel`, `FileIndex`. ID символа глобален и детерминирован:
-  `php:App\Service\Foo::bar()`.
-- `internal/core/lang` — контракт языкового адаптера + реестр.
-- `internal/lang/php` — PHP-адаптер на tree-sitter-php: классы,
-  интерфейсы, трейты, енумы, методы, свойства (включая промоутнутые в
-  конструкторе), константы, функции, `use`-импорты (включая групповые и
-  алиасы), факты наследования (extends/implements/use trait).
+- `internal/core/model` — language-agnostic model: `Symbol`, `Import`,
+  `Ref`, `FileIndex`. Symbol IDs are global and deterministic:
+  `php:App\Service\Foo::bar()`, `go:module/pkg.Type.Method()`.
+- `internal/core/lang` — language adapter contract + registry.
+- `internal/core/indexer` — gitignore-aware walk, worker pool,
+  change detection.
+- `internal/core/store` — SQLite schema, bulk/incremental writers,
+  FTS.
+- `internal/core/query` — read side: search, lookups, graph
+  traversals.
+- `internal/lang/php`, `internal/lang/golang` — tree-sitter adapters.
+- `internal/enrich` — go/types and PHPStan enrichment.
+- `internal/mcpserver` — MCP tools over the query engine.
 
-Файлы с синтаксическими ошибками парсятся best-effort и помечаются
-`hasErrors` (error-recovery у tree-sitter).
+Files with syntax errors are parsed best-effort and flagged
+`hasErrors` (tree-sitter error recovery).
 
-## Отладка грамматик
+## Grammar debugging
 
 ```sh
-kartograf parse-tree file.php   # сырой CST tree-sitter (скрытая команда)
+kartograf parse-tree file.php   # raw tree-sitter CST (hidden command)
 ```
