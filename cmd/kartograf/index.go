@@ -11,6 +11,7 @@ import (
 	"gitlab.stripchat.dev/stripcash/kartograf/internal/core/config"
 	"gitlab.stripchat.dev/stripcash/kartograf/internal/core/indexer"
 	"gitlab.stripchat.dev/stripcash/kartograf/internal/core/store"
+	"gitlab.stripchat.dev/stripcash/kartograf/internal/enrich"
 )
 
 func newIndexCmd() *cobra.Command {
@@ -74,6 +75,10 @@ the user cache dir unless --db is given; project settings are read from
 			})
 			if err != nil {
 				return err
+			}
+
+			if err := enrich.AutoImport(s, absRoot, logf); err != nil {
+				logf("enrich auto-import: %v", err)
 			}
 
 			total, err := s.Stats()

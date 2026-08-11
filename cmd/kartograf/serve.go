@@ -13,6 +13,7 @@ import (
 	"gitlab.stripchat.dev/stripcash/kartograf/internal/core/indexer"
 	"gitlab.stripchat.dev/stripcash/kartograf/internal/core/query"
 	"gitlab.stripchat.dev/stripcash/kartograf/internal/core/store"
+	"gitlab.stripchat.dev/stripcash/kartograf/internal/enrich"
 	"gitlab.stripchat.dev/stripcash/kartograf/internal/mcpserver"
 )
 
@@ -63,6 +64,11 @@ All progress output goes to stderr; stdout carries the MCP protocol.`,
 				}
 				fmt.Fprintf(os.Stderr, "kartograf: index ready (%d reindexed, %d unchanged, %s)\n",
 					stats.Indexed, stats.Unchanged, stats.Duration.Round(10_000_000))
+			}
+			if err := enrich.AutoImport(s, absRoot, func(format string, args ...any) {
+				fmt.Fprintf(os.Stderr, format+"\n", args...)
+			}); err != nil {
+				fmt.Fprintf(os.Stderr, "kartograf: enrich auto-import: %v\n", err)
 			}
 
 			srv := mcpserver.New(query.New(s, absRoot), version)

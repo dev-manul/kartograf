@@ -211,17 +211,44 @@ func scanEdges(rows *sql.Rows) ([]EdgeHit, error) {
 	return out, rows.Err()
 }
 
-const edgeCols = `e.from_fqn, e.kind, e.to_fqn, f.path, e.line, e.resolved
-	FROM edges e JOIN files f ON f.id = e.file_id`
+// all_edges is the union view of AST edges and enrichment (PHPStan /
+// go-types) edges; enrichment rows are resolved=1 by definition.
+const edgeCols = `e.from_fqn, e.kind, e.to_fqn, e.file, e.line, e.resolved
+	FROM all_edges e`
+
+// dedupeEdges collapses duplicates between the AST layer and
+// enrichment layers. Rows are pre-sorted resolved-first, so the exact
+// edge wins over its heuristic twin.
+func dedupeEdges(hits []EdgeHit) []EdgeHit {
+	type key struct {
+		from, kind, to, file string
+		line                 int
+	}
+	seen := map[key]bool{}
+	out := hits[:0]
+	for _, h := range hits {
+		k := key{h.From, h.Kind, h.To, h.File, h.Line}
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		out = append(out, h)
+	}
+	return out
+}
 
 // References returns all edges pointing at the symbol (any kind).
 func (e *Engine) References(fqn string, limit int) ([]EdgeHit, error) {
 	rows, err := e.s.DB().Query(`SELECT `+edgeCols+`
-		WHERE e.to_fqn = ? ORDER BY e.resolved DESC, f.path, e.line LIMIT ?`, fqn, limit)
+		WHERE e.to_fqn = ? ORDER BY e.resolved DESC, e.file, e.line LIMIT ?`, fqn, limit)
 	if err != nil {
 		return nil, err
 	}
-	return scanEdges(rows)
+	hits, err := scanEdges(rows)
+	if err != nil {
+		return nil, err
+	}
+	return dedupeEdges(hits), nil
 }
 
 // Callers returns call edges into a callable. For methods, the class
@@ -230,37 +257,42 @@ func (e *Engine) References(fqn string, limit int) ([]EdgeHit, error) {
 // (marked unresolved), since the static receiver type in the source is
 // often a supertype of the class that defines the method.
 func (e *Engine) Callers(fqn string, limit int) ([]EdgeHit, error) {
-	class, member, isMethod := strings.Cut(fqn, "::")
+	class, member, isMethod := methodSplit(fqn)
 	if !isMethod {
 		rows, err := e.s.DB().Query(`SELECT `+edgeCols+`
 			WHERE e.to_fqn = ? AND e.kind IN ('calls', 'instantiates')
-			ORDER BY e.resolved DESC, f.path, e.line LIMIT ?`, fqn, limit)
+			ORDER BY e.resolved DESC, e.file, e.line LIMIT ?`, fqn, limit)
 		if err != nil {
 			return nil, err
 		}
-		return scanEdges(rows)
+		hits, err := scanEdges(rows)
+		if err != nil {
+			return nil, err
+		}
+		return dedupeEdges(hits), nil
 	}
 	// family = the class itself + its ancestors + its descendants.
 	// Deliberately NOT descendants-of-ancestors: siblings sharing a
 	// base class don't receive each other's calls.
+	sep := memberSep(fqn)
 	rows, err := e.s.DB().Query(`
 		WITH RECURSIVE up(fqn) AS (
 			SELECT ?
 			UNION
-			SELECT e2.to_fqn FROM edges e2 JOIN up ON e2.from_fqn = up.fqn
+			SELECT e2.to_fqn FROM all_edges e2 JOIN up ON e2.from_fqn = up.fqn
 				AND e2.kind IN ('extends', 'implements', 'uses_trait')
 		), down(fqn) AS (
 			SELECT ?
 			UNION
-			SELECT e3.from_fqn FROM edges e3 JOIN down ON e3.to_fqn = down.fqn
+			SELECT e3.from_fqn FROM all_edges e3 JOIN down ON e3.to_fqn = down.fqn
 				AND e3.kind IN ('extends', 'implements', 'uses_trait')
 		), family(fqn) AS (
 			SELECT fqn FROM up UNION SELECT fqn FROM down
 		)
 		SELECT `+edgeCols+`
-		WHERE e.kind = 'calls' AND e.to_fqn IN (SELECT fqn || '::' || ? FROM family)
-		ORDER BY (e.to_fqn = ?) DESC, e.resolved DESC, f.path, e.line LIMIT ?`,
-		class, class, member, fqn, limit)
+		WHERE e.kind = 'calls' AND e.to_fqn IN (SELECT fqn || ? || ? FROM family)
+		ORDER BY (e.to_fqn = ?) DESC, e.resolved DESC, e.file, e.line LIMIT ?`,
+		class, class, sep, member, fqn, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -274,18 +306,46 @@ func (e *Engine) Callers(fqn string, limit int) ([]EdgeHit, error) {
 			hits[i].Resolved = false
 		}
 	}
-	return hits, nil
+	return dedupeEdges(hits), nil
+}
+
+// methodSplit splits a member FQN into its container and member parts:
+// PHP "A\B::bar()" -> ("A\B", "bar()"), Go "pkg.T.M()" -> ("pkg.T",
+// "M()"). Not-a-member FQNs (bare classes) return ok=false.
+func methodSplit(fqn string) (class, member string, ok bool) {
+	if c, m, found := strings.Cut(fqn, "::"); found {
+		return c, m, true
+	}
+	if !strings.HasSuffix(fqn, "()") {
+		return "", "", false
+	}
+	if i := strings.LastIndex(fqn, "."); i >= 0 {
+		return fqn[:i], fqn[i+1:], true
+	}
+	return "", "", false
+}
+
+// memberSep is the container/member separator used in the FQN dialect.
+func memberSep(fqn string) string {
+	if strings.Contains(fqn, "::") {
+		return "::"
+	}
+	return "."
 }
 
 // Callees returns outgoing calls/instantiations of a symbol.
 func (e *Engine) Callees(fqn string, limit int) ([]EdgeHit, error) {
 	rows, err := e.s.DB().Query(`SELECT `+edgeCols+`
 		WHERE e.from_fqn = ? AND e.kind IN ('calls', 'instantiates')
-		ORDER BY e.line LIMIT ?`, fqn, limit)
+		ORDER BY e.resolved DESC, e.line LIMIT ?`, fqn, limit)
 	if err != nil {
 		return nil, err
 	}
-	return scanEdges(rows)
+	hits, err := scanEdges(rows)
+	if err != nil {
+		return nil, err
+	}
+	return dedupeEdges(hits), nil
 }
 
 // Relative is one hierarchy neighbor.
@@ -317,7 +377,7 @@ func (e *Engine) Hierarchy(fqn string) (ancestors, descendants []Relative, err e
 		WITH RECURSIVE up(fqn, kind) AS (
 			SELECT ?, ''
 			UNION
-			SELECT e.to_fqn, e.kind FROM edges e JOIN up ON e.from_fqn = up.fqn
+			SELECT e.to_fqn, e.kind FROM all_edges e JOIN up ON e.from_fqn = up.fqn
 				AND e.kind IN ('extends', 'implements', 'uses_trait')
 		)
 		SELECT fqn, kind FROM up WHERE kind != '' LIMIT 200`)
@@ -328,7 +388,7 @@ func (e *Engine) Hierarchy(fqn string) (ancestors, descendants []Relative, err e
 		WITH RECURSIVE down(fqn, kind) AS (
 			SELECT ?, ''
 			UNION
-			SELECT e.from_fqn, e.kind FROM edges e JOIN down ON e.to_fqn = down.fqn
+			SELECT e.from_fqn, e.kind FROM all_edges e JOIN down ON e.to_fqn = down.fqn
 				AND e.kind IN ('extends', 'implements', 'uses_trait')
 		)
 		SELECT fqn, kind FROM down WHERE kind != '' LIMIT 500`)

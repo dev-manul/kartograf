@@ -20,7 +20,7 @@ import (
 
 // schemaVersion is bumped on any incompatible schema change; a version
 // mismatch drops and recreates the database (it is cheap to rebuild).
-const schemaVersion = 4
+const schemaVersion = 5
 
 const schema = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -80,6 +80,29 @@ CREATE TABLE IF NOT EXISTS edges (
 CREATE INDEX IF NOT EXISTS idx_edges_file ON edges(file_id);
 CREATE INDEX IF NOT EXISTS idx_edges_from ON edges(from_fqn, kind);
 CREATE INDEX IF NOT EXISTS idx_edges_to   ON edges(to_fqn, kind);
+
+-- ext_edges hold enrichment data (PHPStan / go-types type-inference
+-- exports). They are replaced wholesale per source on import and are
+-- not touched by file reindexing.
+CREATE TABLE IF NOT EXISTS ext_edges (
+	source   TEXT NOT NULL, -- 'phpstan' | 'go-types' | ...
+	from_fqn TEXT NOT NULL,
+	kind     TEXT NOT NULL,
+	to_fqn   TEXT NOT NULL,
+	file     TEXT NOT NULL DEFAULT '',
+	line     INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_ext_edges_from ON ext_edges(from_fqn, kind);
+CREATE INDEX IF NOT EXISTS idx_ext_edges_to   ON ext_edges(to_fqn, kind);
+
+-- all_edges is the read-side union of AST edges and enrichment edges.
+CREATE VIEW IF NOT EXISTS all_edges AS
+	SELECT e.from_fqn AS from_fqn, e.kind AS kind, e.to_fqn AS to_fqn,
+		e.resolved AS resolved, f.path AS file, e.line AS line
+	FROM edges e JOIN files f ON f.id = e.file_id
+	UNION ALL
+	SELECT x.from_fqn, x.kind, x.to_fqn, 1 AS resolved, x.file, x.line
+	FROM ext_edges x;
 
 CREATE VIRTUAL TABLE IF NOT EXISTS symbols_fts USING fts5(
 	name, fqn, doc, words,
@@ -374,6 +397,71 @@ func boolInt(b bool) int {
 		return 1
 	}
 	return 0
+}
+
+// ExtEdge is one enrichment edge (exact by definition: it comes from
+// a full type-inference tool).
+type ExtEdge struct {
+	From string `json:"from"`
+	Kind string `json:"kind"`
+	To   string `json:"to"`
+	File string `json:"file,omitempty"`
+	Line int    `json:"line,omitempty"`
+}
+
+// ReplaceExtEdges swaps the whole enrichment edge set of one source.
+func (s *Store) ReplaceExtEdges(source string, rows []ExtEdge) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`DELETE FROM ext_edges WHERE source = ?`, source); err != nil {
+		return err
+	}
+	st, err := tx.Prepare(`INSERT INTO ext_edges (source, from_fqn, kind, to_fqn, file, line)
+		VALUES (?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		return err
+	}
+	for _, r := range rows {
+		if _, err := st.Exec(source, r.From, r.Kind, r.To, r.File, r.Line); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// Meta reads an arbitrary metadata value ("" when absent).
+func (s *Store) Meta(key string) (string, error) {
+	var v string
+	err := s.db.QueryRow(`SELECT value FROM meta WHERE key = ?`, key).Scan(&v)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return v, err
+}
+
+// SetMeta stores an arbitrary metadata value.
+func (s *Store) SetMeta(key, value string) error { return s.setMeta(key, value) }
+
+// IndexedPaths returns the set of indexed file paths (for mapping
+// external tool output paths onto the index).
+func (s *Store) IndexedPaths() (map[string]bool, error) {
+	rows, err := s.db.Query(`SELECT path FROM files`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	m := map[string]bool{}
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			return nil, err
+		}
+		m[p] = true
+	}
+	return m, rows.Err()
 }
 
 // SplitWords breaks an identifier into lowercase words for full-text
