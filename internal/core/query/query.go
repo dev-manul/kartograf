@@ -242,6 +242,25 @@ func scanEdges(rows *sql.Rows) ([]EdgeHit, error) {
 const edgeCols = `e.from_fqn, e.kind, e.to_fqn, e.file, e.line, e.resolved, e.source
 	FROM all_edges e`
 
+// EdgeFilter narrows call-graph results by file location.
+type EdgeFilter struct {
+	PathPrefix   string // root-relative path prefix, e.g. "api/src/"
+	ExcludeTests bool
+}
+
+func (f EdgeFilter) sql() (cond string, args []any) {
+	if f.PathPrefix != "" {
+		cond += " AND e.file LIKE ? ESCAPE '!'"
+		args = append(args, escapeLike(f.PathPrefix)+"%")
+	}
+	if f.ExcludeTests {
+		cond += ` AND NOT (e.file LIKE 'tests/%' OR e.file LIKE '%/tests/%'
+			OR e.file LIKE '%/Tests/%' OR e.file LIKE '%/__tests__/%'
+			OR e.file LIKE '%_test.go' OR e.file LIKE '%.test.ts' OR e.file LIKE '%.test.tsx')`
+	}
+	return cond, args
+}
+
 // dedupeEdges collapses duplicates between the AST layer and
 // enrichment layers. Rows are pre-sorted resolved-first, so the exact
 // edge wins over its heuristic twin.
@@ -264,9 +283,12 @@ func dedupeEdges(hits []EdgeHit) []EdgeHit {
 }
 
 // References returns all edges pointing at the symbol (any kind).
-func (e *Engine) References(fqn string, limit int) ([]EdgeHit, error) {
+func (e *Engine) References(fqn string, limit int, f EdgeFilter) ([]EdgeHit, error) {
+	cond, condArgs := f.sql()
+	args := append([]any{fqn}, condArgs...)
+	args = append(args, limit)
 	rows, err := e.s.DB().Query(`SELECT `+edgeCols+`
-		WHERE e.to_fqn = ? ORDER BY e.resolved DESC, e.file, e.line LIMIT ?`, fqn, limit)
+		WHERE e.to_fqn = ?`+cond+` ORDER BY e.resolved DESC, e.file, e.line LIMIT ?`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -282,12 +304,15 @@ func (e *Engine) References(fqn string, limit int) ([]EdgeHit, error) {
 // or descendant receiver with the same method name are included
 // (marked unresolved), since the static receiver type in the source is
 // often a supertype of the class that defines the method.
-func (e *Engine) Callers(fqn string, limit int) ([]EdgeHit, error) {
+func (e *Engine) Callers(fqn string, limit int, f EdgeFilter) ([]EdgeHit, error) {
+	cond, condArgs := f.sql()
 	class, member, isMethod := methodSplit(fqn)
 	if !isMethod {
+		args := append([]any{fqn}, condArgs...)
+		args = append(args, limit)
 		rows, err := e.s.DB().Query(`SELECT `+edgeCols+`
-			WHERE e.to_fqn = ? AND e.kind IN ('calls', 'instantiates')
-			ORDER BY e.resolved DESC, e.file, e.line LIMIT ?`, fqn, limit)
+			WHERE e.to_fqn = ? AND e.kind IN ('calls', 'instantiates')`+cond+`
+			ORDER BY e.resolved DESC, e.file, e.line LIMIT ?`, args...)
 		if err != nil {
 			return nil, err
 		}
@@ -319,12 +344,13 @@ func (e *Engine) Callers(fqn string, limit int) ([]EdgeHit, error) {
 	for start := 0; start < len(candidates); start += 400 {
 		chunk := candidates[start:min(start+400, len(candidates))]
 		placeholders := strings.Repeat("?, ", len(chunk)-1) + "?"
-		args := make([]any, len(chunk))
-		for i, c := range chunk {
-			args[i] = c
+		args := make([]any, 0, len(chunk)+len(condArgs))
+		for _, c := range chunk {
+			args = append(args, c)
 		}
+		args = append(args, condArgs...)
 		rows, err := e.s.DB().Query(`SELECT `+edgeCols+`
-			WHERE e.kind = 'calls' AND e.to_fqn IN (`+placeholders+`)`, args...)
+			WHERE e.kind = 'calls' AND e.to_fqn IN (`+placeholders+`)`+cond, args...)
 		if err != nil {
 			return nil, err
 		}
@@ -482,10 +508,13 @@ func memberSep(fqn string) string {
 }
 
 // Callees returns outgoing calls/instantiations of a symbol.
-func (e *Engine) Callees(fqn string, limit int) ([]EdgeHit, error) {
+func (e *Engine) Callees(fqn string, limit int, f EdgeFilter) ([]EdgeHit, error) {
+	cond, condArgs := f.sql()
+	args := append([]any{fqn}, condArgs...)
+	args = append(args, limit)
 	rows, err := e.s.DB().Query(`SELECT `+edgeCols+`
-		WHERE e.from_fqn = ? AND e.kind IN ('calls', 'instantiates')
-		ORDER BY e.resolved DESC, e.line LIMIT ?`, fqn, limit)
+		WHERE e.from_fqn = ? AND e.kind IN ('calls', 'instantiates')`+cond+`
+		ORDER BY e.resolved DESC, e.line LIMIT ?`, args...)
 	if err != nil {
 		return nil, err
 	}

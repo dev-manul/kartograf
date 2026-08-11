@@ -33,8 +33,14 @@ type searchIn struct {
 }
 
 type fqnIn struct {
-	FQN   string `json:"fqn" jsonschema:"symbol FQN, e.g. App\\Service\\Foo or App\\Service\\Foo::bar() or App\\Service\\Foo::$prop; a bare trailing segment like Foo::bar() also works"`
-	Limit int    `json:"limit,omitempty" jsonschema:"max results, default 50"`
+	FQN          string `json:"fqn" jsonschema:"symbol FQN, e.g. App\\Service\\Foo or App\\Service\\Foo::bar() or App\\Service\\Foo::$prop; a bare trailing segment like Foo::bar() also works"`
+	Limit        int    `json:"limit,omitempty" jsonschema:"max results, default 50, max 500"`
+	PathPrefix   string `json:"pathPrefix,omitempty" jsonschema:"only edges in files under this root-relative path prefix, e.g. api/src/"`
+	ExcludeTests bool   `json:"excludeTests,omitempty" jsonschema:"drop edges located in test files/directories"`
+}
+
+func edgeFilter(in fqnIn) query.EdgeFilter {
+	return query.EdgeFilter{PathPrefix: in.PathPrefix, ExcludeTests: in.ExcludeTests}
 }
 
 type getSymbolIn struct {
@@ -157,7 +163,7 @@ func register(s *mcp.Server, q *query.Engine) {
 			"constant access, inheritance). Args: fqn (or bare name), limit. Each edge carries " +
 			"source (ast | phpstan | go-types) and resolved (false = heuristic match).",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in fqnIn) (*mcp.CallToolResult, edgesOut, error) {
-		hits, err := q.References(resolveFQN(q, in.FQN), limit(in.Limit))
+		hits, err := q.References(resolveFQN(q, in.FQN), limit(in.Limit), edgeFilter(in))
 		return nil, edgesOut{Results: nonNil(hits)}, err
 	})
 
@@ -165,9 +171,9 @@ func register(s *mcp.Server, q *query.Engine) {
 		Name: "get_callers",
 		Description: "Who calls this method/function? Args: fqn (or bare name), limit. For methods the class " +
 			"hierarchy is considered: calls via a parent interface/class reference are included and marked " +
-			"resolved=false. Edges carry source (ast | phpstan | go-types).",
+			"resolved=false. Edges carry source (ast | phpstan | go-types). Optional pathPrefix/excludeTests filters.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in fqnIn) (*mcp.CallToolResult, edgesOut, error) {
-		hits, err := q.Callers(resolveFQN(q, in.FQN), limit(in.Limit))
+		hits, err := q.Callers(resolveFQN(q, in.FQN), limit(in.Limit), edgeFilter(in))
 		return nil, edgesOut{Results: nonNil(hits)}, err
 	})
 
@@ -175,7 +181,7 @@ func register(s *mcp.Server, q *query.Engine) {
 		Name:        "get_callees",
 		Description: "What does this method/function call or instantiate? Lists outgoing call edges in source order.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in fqnIn) (*mcp.CallToolResult, edgesOut, error) {
-		hits, err := q.Callees(resolveFQN(q, in.FQN), limit(in.Limit))
+		hits, err := q.Callees(resolveFQN(q, in.FQN), limit(in.Limit), edgeFilter(in))
 		return nil, edgesOut{Results: nonNil(hits)}, err
 	})
 
