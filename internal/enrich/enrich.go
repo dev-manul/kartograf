@@ -135,19 +135,22 @@ func normalizePath(p, root string, indexed map[string]bool) string {
 }
 
 // AutoImport re-imports every .kartograf/enrich.*.jsonl whose mtime
-// changed since the last import. Returns a human-readable summary of
-// what was imported ("" if nothing).
+// changed since the last import, and drops edges of sources whose
+// exchange file has been deleted. With no files present the layer is
+// simply inactive — the AST edges work on their own.
 func AutoImport(s *store.Store, root string, logf func(format string, args ...any)) error {
 	matches, err := filepath.Glob(filepath.Join(root, Dir, "enrich.*.jsonl"))
 	if err != nil {
 		return err
 	}
+	present := map[string]bool{}
 	for _, path := range matches {
 		base := filepath.Base(path)
 		source := strings.TrimSuffix(strings.TrimPrefix(base, "enrich."), ".jsonl")
 		if source == "" {
 			continue
 		}
+		present[source] = true
 		fi, err := os.Stat(path)
 		if err != nil {
 			continue
@@ -164,6 +167,24 @@ func AutoImport(s *store.Store, root string, logf func(format string, args ...an
 			return fmt.Errorf("import %s: %w", base, err)
 		}
 		logf("enrich: imported %d edges from %s", n, base)
+	}
+	// A deleted exchange file means the user retired that enrichment:
+	// remove its edges instead of serving stale data forever.
+	imported, err := s.ImportedEnrichSources()
+	if err != nil {
+		return err
+	}
+	for _, source := range imported {
+		if present[source] {
+			continue
+		}
+		if err := s.ReplaceExtEdges(source, nil); err != nil {
+			return err
+		}
+		if err := s.SetMeta("enrich_mtime_"+source, ""); err != nil {
+			return err
+		}
+		logf("enrich: %s.jsonl removed, dropped its edges", "enrich."+source)
 	}
 	return nil
 }

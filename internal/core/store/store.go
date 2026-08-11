@@ -432,6 +432,25 @@ func (s *Store) ReplaceExtEdges(source string, rows []ExtEdge) error {
 	return tx.Commit()
 }
 
+// ImportedEnrichSources lists enrichment sources that currently have
+// edges in the store.
+func (s *Store) ImportedEnrichSources() ([]string, error) {
+	rows, err := s.db.Query(`SELECT DISTINCT source FROM ext_edges`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var src string
+		if err := rows.Scan(&src); err != nil {
+			return nil, err
+		}
+		out = append(out, src)
+	}
+	return out, rows.Err()
+}
+
 // Meta reads an arbitrary metadata value ("" when absent).
 func (s *Store) Meta(key string) (string, error) {
 	var v string
