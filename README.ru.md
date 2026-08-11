@@ -4,18 +4,22 @@
 
 Строит карту кода проекта (символы, ссылки, граф вызовов) и отдаёт её
 AI-агентам через MCP. Парсинг — tree-sitter, ядро языконезависимое;
-реализованы адаптеры **PHP** и **Go**, дальше — TS/JS.
+реализованы адаптеры **PHP**, **Go** и **TypeScript/JavaScript**.
 
 ## Возможности
 
 - Извлечение символов: классы/интерфейсы/трейты/енумы (PHP),
-  структуры/интерфейсы/type alias (Go), методы, свойства (включая
-  промоутнутые в конструкторе), константы, функции, докблоки.
+  структуры/интерфейсы/type alias (Go), классы/интерфейсы/енумы/type
+  alias и const-стрелочные компоненты (TS/JS, включая TSX/JSX), методы,
+  свойства (включая промоутнутые и parameter properties), константы,
+  функции, докблоки.
 - Рёбра ссылок с резолвом на этапе извлечения по file-local знанию:
   инстанцирования, статические и инстансные вызовы (`$this->`,
   `self::`, `parent::`, типизированные свойства и параметры, one-hop
   через поля структур в Go), доступ к константам, type hints,
-  `instanceof`, атрибуты, наследование и трейты/embedding.
+  `instanceof`, атрибуты, наследование и трейты/embedding. Рендер
+  JSX-компонента — ребро вызова; импорты TS резолвятся по
+  относительным путям и именам workspace-пакетов (package.json).
 - Инкрементальный индекс в SQLite + FTS5: stat-фастпас (mtime+size),
   sha256 как источник истины — переключение веток реиндексирует только
   реальный дифф. Vendor индексируется неглубоко (декларации +
@@ -109,14 +113,16 @@ vendor: index      # index (по умолчанию, с пометкой vendor)
 
 - `internal/core/model` — языконезависимая модель: `Symbol`, `Import`,
   `Ref`, `FileIndex`. ID символа глобален и детерминирован:
-  `php:App\Service\Foo::bar()`, `go:module/pkg.Type.Method()`.
+  `php:App\Service\Foo::bar()`, `go:module/pkg.Type.Method()`,
+  `ts:src/api/client#ApiClient.get()` (модуль = путь файла).
 - `internal/core/lang` — контракт языкового адаптера + реестр.
 - `internal/core/indexer` — gitignore-aware обход, воркер-пул,
   детект изменений.
 - `internal/core/store` — схема SQLite, bulk/инкрементальный writer,
   FTS.
 - `internal/core/query` — чтение: поиск, lookups, обходы графа.
-- `internal/lang/php`, `internal/lang/golang` — tree-sitter адаптеры.
+- `internal/lang/php`, `internal/lang/golang`, `internal/lang/ts` —
+  tree-sitter адаптеры.
 - `internal/enrich` — обогащение go/types и PHPStan.
 - `internal/mcpserver` — MCP-тулзы поверх query-движка.
 

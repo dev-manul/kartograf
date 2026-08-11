@@ -7,6 +7,7 @@ package indexer
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
@@ -251,6 +252,12 @@ func collect(root string, cfg config.Config) ([]entry, map[string]string, error)
 				}
 				return nil
 			}
+			if d.Name() == "package.json" && !vendor {
+				if name := readPackageName(path); name != "" {
+					modules[filepath.ToSlash(filepath.Dir(rel))] = name
+				}
+				return nil
+			}
 			if lang.ForPath(rel) == nil {
 				return nil
 			}
@@ -274,6 +281,21 @@ func collect(root string, cfg config.Config) ([]entry, map[string]string, error)
 		}
 	}
 	return entries, modules, nil
+}
+
+// readPackageName extracts the "name" field from a package.json.
+func readPackageName(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	var pkg struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(data, &pkg); err != nil {
+		return ""
+	}
+	return pkg.Name
 }
 
 // readModulePath extracts the module path from a go.mod file.

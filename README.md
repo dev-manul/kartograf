@@ -4,19 +4,23 @@
 
 Builds a code map of a project (symbols, references, call graph) and
 serves it to AI agents over MCP. Parsing is tree-sitter based, the
-core is language-agnostic; **PHP** and **Go** adapters are implemented,
-TS/JS is next.
+core is language-agnostic; **PHP**, **Go** and **TypeScript/JavaScript**
+adapters are implemented.
 
 ## Features
 
 - Symbol extraction: classes/interfaces/traits/enums (PHP), structs/
-  interfaces/type aliases (Go), methods, properties (incl. constructor
-  promotion), constants, functions, doc comments.
+  interfaces/type aliases (Go), classes/interfaces/enums/type aliases
+  and const arrow-function components (TS/JS, incl. TSX/JSX), methods,
+  properties (incl. constructor promotion and parameter properties),
+  constants, functions, doc comments.
 - Reference edges resolved at extraction time with file-local
   knowledge: instantiations, static and instance calls (`$this->`,
   `self::`, `parent::`, typed properties and parameters, one hop
   through struct fields in Go), constant access, type hints,
   `instanceof`, attributes, inheritance and trait/embedding facts.
+  JSX component renders become call edges; TS imports resolve through
+  relative paths and workspace package names (package.json).
 - Incremental indexing into SQLite + FTS5: stat fast path
   (mtime+size), sha256 as the source of truth, so branch switches
   reindex only real diffs. Vendor code is indexed shallow
@@ -112,7 +116,8 @@ indexed bypassing gitignore and flagged as vendor.
 
 - `internal/core/model` — language-agnostic model: `Symbol`, `Import`,
   `Ref`, `FileIndex`. Symbol IDs are global and deterministic:
-  `php:App\Service\Foo::bar()`, `go:module/pkg.Type.Method()`.
+  `php:App\Service\Foo::bar()`, `go:module/pkg.Type.Method()`,
+  `ts:src/api/client#ApiClient.get()` (module = file path).
 - `internal/core/lang` — language adapter contract + registry.
 - `internal/core/indexer` — gitignore-aware walk, worker pool,
   change detection.
@@ -120,7 +125,8 @@ indexed bypassing gitignore and flagged as vendor.
   FTS.
 - `internal/core/query` — read side: search, lookups, graph
   traversals.
-- `internal/lang/php`, `internal/lang/golang` — tree-sitter adapters.
+- `internal/lang/php`, `internal/lang/golang`, `internal/lang/ts` —
+  tree-sitter adapters.
 - `internal/enrich` — go/types and PHPStan enrichment.
 - `internal/mcpserver` — MCP tools over the query engine.
 

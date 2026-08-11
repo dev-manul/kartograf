@@ -11,6 +11,7 @@ import (
 
 	"gitlab.stripchat.dev/stripcash/kartograf/internal/lang/golang"
 	"gitlab.stripchat.dev/stripcash/kartograf/internal/lang/php"
+	"gitlab.stripchat.dev/stripcash/kartograf/internal/lang/ts"
 )
 
 // parse-tree is a hidden debug command: dump the raw tree-sitter CST
@@ -32,6 +33,8 @@ func newParseTreeCmd() *cobra.Command {
 				tree, err = php.New().Parse(src)
 			case ".go":
 				tree, err = golang.New().Parse(src)
+			case ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs":
+				tree, err = ts.New().Parse(args[0], src)
 			default:
 				return fmt.Errorf("no parser for %s", args[0])
 			}

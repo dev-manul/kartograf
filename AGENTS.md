@@ -6,7 +6,7 @@ Guidance for AI agents working in this repository.
 
 kartograf builds a code map (symbols, references, call graph) of a
 project into SQLite and serves it to AI agents over MCP (stdio).
-Tree-sitter parsing, language-agnostic core, PHP and Go adapters, an
+Tree-sitter parsing, language-agnostic core, PHP/Go/TS adapters, an
 optional type-inference enrichment layer (go/types, PHPStan).
 
 ## Build & test
@@ -36,7 +36,8 @@ that is intentional, add `-tags sqlite_fts5` or use make.
 - `internal/core/store` — SQLite schema, bulk/incremental writers,
   FTS5, enrichment table.
 - `internal/core/query` — read side used by MCP tools.
-- `internal/lang/php`, `internal/lang/golang` — tree-sitter adapters.
+- `internal/lang/php`, `internal/lang/golang`, `internal/lang/ts` —
+  tree-sitter adapters.
 - `internal/enrich` — go/types pass and PHPStan rule scaffolding +
   JSONL import.
 - `internal/mcpserver` — MCP tool definitions.
@@ -48,9 +49,11 @@ that is intentional, add `-tags sqlite_fts5` or use make.
   silently deletes and rebuilds the database — that is the designed
   migration strategy; never write ALTER migrations.
 - **FQN dialects**: PHP `App\Ns\Class::method()`, Go
-  `module/pkg.Type.Method()`. Symbol IDs prefix the language
-  (`php:...`, `go:...`). Query helpers (`methodSplit`, `memberSep`,
-  suffix lookup) must stay separator-agnostic across both.
+  `module/pkg.Type.Method()`, TS `path/module#Class.method()` (module
+  = extensionless file path, trailing `/index` stripped). Symbol IDs
+  prefix the language (`php:...`, `go:...`, `ts:...`). Query helpers
+  (`methodSplit`, `memberSep`, suffix lookup) must stay
+  separator-agnostic across all dialects.
 - **tree-sitter node kinds**: never trust documentation or memory —
   dump the real CST with `kartograf parse-tree file.{php,go}` (hidden
   command) and verify. Grammar quirks live in the adapter tests'
@@ -68,6 +71,12 @@ that is intentional, add `-tags sqlite_fts5` or use make.
   project root is the source of truth; `ext_edges` are replaced
   wholesale per source on import, auto-imported by index/serve on
   mtime change, and dropped when the file is deleted.
+- **TS specifics**: JSX component renders are `calls` edges with a
+  `()` target so they join function-component FQNs; unqualified names
+  resolve only through imports or file-local declarations (JS scoping
+  — unknown names are globals and are skipped); imports through barrel
+  files (`index.ts` re-exports) stay heuristic and do not join the
+  graph — a known limitation.
 - **Vendor code** is indexed shallow (`SkipRefs`): declarations and
   hierarchy only. Don't emit call edges from vendor files.
 - **Bulk vs incremental writes**: an empty database takes

@@ -122,13 +122,25 @@ func (e *Engine) GetSymbol(fqn string) ([]SymbolHit, error) {
 	}
 	// Suffix fallback ("UserService", "UserService::run()"): find by
 	// the short symbol name via its index, then narrow to FQNs ending
-	// with the requested path — avoids a full LIKE scan. Separator
-	// before the suffix is language-specific (PHP "\", Go "/" or ".").
+	// with the requested path — avoids a full LIKE scan. The separator
+	// before the suffix is language-specific: PHP "\", Go "." / "/",
+	// TS "#" / ".". A function lookup also tries the "()"-suffixed
+	// form ("Button" finds "mod#Button()").
 	esc := escapeLike(fqn)
+	patterns := []string{"%\\" + esc, "%." + esc, "%/" + esc, "%#" + esc}
+	if !strings.HasSuffix(fqn, "()") {
+		fnEsc := esc + "()"
+		patterns = append(patterns, "%\\"+fnEsc, "%."+fnEsc, "%/"+fnEsc, "%#"+fnEsc)
+	}
+	where := make([]string, len(patterns))
+	args := []any{shortName(fqn)}
+	for i, p := range patterns {
+		where[i] = "s.fqn LIKE ? ESCAPE '!'"
+		args = append(args, p)
+	}
 	rows, err = e.s.DB().Query(`SELECT `+symbolCols+`
-		WHERE s.name = ? AND (s.fqn LIKE ? ESCAPE '#' OR s.fqn LIKE ? ESCAPE '#' OR s.fqn LIKE ? ESCAPE '#')
-		ORDER BY f.vendor ASC LIMIT 20`,
-		shortName(fqn), "%\\"+esc, "%."+esc, "%/"+esc)
+		WHERE s.name = ? AND (`+strings.Join(where, " OR ")+`)
+		ORDER BY f.vendor ASC LIMIT 20`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -136,17 +148,17 @@ func (e *Engine) GetSymbol(fqn string) ([]SymbolHit, error) {
 }
 
 // shortName extracts the bare symbol name from an FQN-ish string:
-// "A\B::bar()" -> "bar", "a/b.C.D()" -> "D", "A\B::$x" -> "x".
+// "A\B::bar()" -> "bar", "a/b.C.D()" -> "D", "mod#Button" -> "Button".
 func shortName(fqn string) string {
 	s := strings.TrimSuffix(fqn, "()")
-	if i := strings.LastIndexAny(s, "\\./:"); i >= 0 {
+	if i := strings.LastIndexAny(s, "\\./:#"); i >= 0 {
 		s = s[i+1:]
 	}
 	return strings.TrimPrefix(s, "$")
 }
 
 func escapeLike(s string) string {
-	r := strings.NewReplacer("#", "##", "%", "#%", "_", "#_")
+	r := strings.NewReplacer("!", "!!", "%", "!%", "_", "!_")
 	return r.Replace(s)
 }
 
