@@ -7,7 +7,7 @@
 
 <h1 align="center">kartograf</h1>
 
-<p align="center">[English version](README.md)</p>
+<p align="center"><a href="README.md">English version</a></p>
 
 Строит карту кода проекта (символы, ссылки, граф вызовов) и отдаёт её
 AI-агентам через MCP. Парсинг — tree-sitter, ядро языконезависимое;

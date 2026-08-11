@@ -7,7 +7,7 @@
 
 <h1 align="center">kartograf</h1>
 
-<p align="center">[Русская версия](README.ru.md)</p>
+<p align="center"><a href="README.ru.md">Русская версия</a></p>
 
 Builds a code map of a project (symbols, references, call graph) and
 serves it to AI agents over MCP. Parsing is tree-sitter based, the
