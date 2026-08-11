@@ -6,22 +6,45 @@ AI-агентам через MCP. Парсинг — tree-sitter, ядро яз�
 
 ## Статус
 
-Фаза 1 (извлечение PHP-символов) и фаза 2 (инкрементальный индексатор,
-SQLite + FTS5) готовы.
+Готовы фазы 1–4: извлечение PHP-символов, инкрементальный индексатор
+(SQLite + FTS5), резолв имён с рёбрами графа, MCP-сервер (stdio).
 
-Дорожная карта: резолв имён и рёбра (extends/implements/calls) →
-MCP-сервер (stdio) → watch-режим → опциональный слой точности на PHPStan.
+Дорожная карта: watch-режим (fsnotify) → опциональный слой точности на
+PHPStan (JSONL из CI) → адаптеры TS/JS и Go.
 
 ## Использование
 
 ```sh
-go build ./cmd/kartograf
+go install ./cmd/kartograf
 
 kartograf index [root]                      # построить/обновить индекс
 kartograf index --rebuild                   # с нуля
+kartograf serve [root]                      # MCP-сервер на stdio (сам доиндексирует)
 kartograf outline path/to/File.php          # символы файла
 kartograf outline --json path/to/File.php   # полный FileIndex в JSON
 ```
+
+Регистрация в Claude Code:
+
+```sh
+claude mcp add kartograf -- kartograf serve /path/to/project
+```
+
+## MCP-тулзы
+
+| Тулза | Что делает |
+|---|---|
+| `search_symbols` | FTS-поиск по именам/FQN/докблокам, фильтр по kind |
+| `get_symbol` | Декларация по FQN (или хвосту имени): сигнатура, док, члены класса, исходник |
+| `find_references` | Все ссылки на символ: вызовы, new, type hints, instanceof, константы |
+| `get_callers` | Кто вызывает метод/функцию; для методов учитывается иерархия классов |
+| `get_callees` | Что вызывает/инстанцирует символ |
+| `class_hierarchy` | Транзитивные предки и потомки (реализации интерфейса) |
+| `file_outline` | Символы файла |
+
+Рёбра с `resolved=false` — эвристика (вызов через `parent::`, выведенный
+тип получателя, глобальный фолбэк функций); точные рёбра резолвятся по
+правилам PHP из use-карты и неймспейса файла.
 
 Индекс лежит в кэше пользователя (`~/Library/Caches/kartograf/<проект>-<hash>/index.db`
 на macOS, `~/.cache/...` на Linux) — это производный артефакт, в гит не
