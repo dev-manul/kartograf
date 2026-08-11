@@ -183,6 +183,12 @@ func open(path, projectRoot string, retry bool) (*Store, error) {
 		return nil, err
 	}
 	s := &Store{db: db, path: path}
+	// mmap speeds up cold reads considerably on big databases (the
+	// first query after OS page-cache eviction).
+	if _, err := db.Exec(`PRAGMA mmap_size = 1073741824`); err != nil {
+		db.Close()
+		return nil, err
+	}
 	if _, err := db.Exec(schema); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("store: init schema: %w", err)

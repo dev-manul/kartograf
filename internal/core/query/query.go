@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/dev-manul/kartograf/internal/core/store"
@@ -299,39 +300,161 @@ func (e *Engine) Callers(fqn string, limit int) ([]EdgeHit, error) {
 	// family = the class itself + its ancestors + its descendants.
 	// Deliberately NOT descendants-of-ancestors: siblings sharing a
 	// base class don't receive each other's calls.
+	//
+	// Two steps on purpose: the closure itself is fast (indexed
+	// joins), but an `IN (SELECT ...)` over the all_edges UNION view
+	// defeats predicate pushdown and scans every edge (~250ms on a
+	// monolith). A literal IN list keeps the index in play (~ms).
+	family, err := e.family(class)
+	if err != nil {
+		return nil, err
+	}
 	sep := memberSep(fqn)
-	rows, err := e.s.DB().Query(`
-		WITH RECURSIVE up(fqn) AS (
-			SELECT ?
-			UNION
-			SELECT e2.to_fqn FROM all_edges e2 JOIN up ON e2.from_fqn = up.fqn
-				AND e2.kind IN ('extends', 'implements', 'uses_trait')
-		), down(fqn) AS (
-			SELECT ?
-			UNION
-			SELECT e3.from_fqn FROM all_edges e3 JOIN down ON e3.to_fqn = down.fqn
-				AND e3.kind IN ('extends', 'implements', 'uses_trait')
-		), family(fqn) AS (
-			SELECT fqn FROM up UNION SELECT fqn FROM down
-		)
-		SELECT `+edgeCols+`
-		WHERE e.kind = 'calls' AND e.to_fqn IN (SELECT fqn || ? || ? FROM family)
-		ORDER BY (e.to_fqn = ?) DESC, e.resolved DESC, e.file, e.line LIMIT ?`,
-		class, class, sep, member, fqn, limit)
-	if err != nil {
-		return nil, err
+	candidates := make([]string, 0, len(family))
+	for _, f := range family {
+		candidates = append(candidates, f+sep+member)
 	}
-	hits, err := scanEdges(rows)
-	if err != nil {
-		return nil, err
+
+	var hits []EdgeHit
+	for start := 0; start < len(candidates); start += 400 {
+		chunk := candidates[start:min(start+400, len(candidates))]
+		placeholders := strings.Repeat("?, ", len(chunk)-1) + "?"
+		args := make([]any, len(chunk))
+		for i, c := range chunk {
+			args[i] = c
+		}
+		rows, err := e.s.DB().Query(`SELECT `+edgeCols+`
+			WHERE e.kind = 'calls' AND e.to_fqn IN (`+placeholders+`)`, args...)
+		if err != nil {
+			return nil, err
+		}
+		part, err := scanEdges(rows)
+		if err != nil {
+			return nil, err
+		}
+		hits = append(hits, part...)
 	}
+
 	// Hierarchy-widened matches are heuristic by construction.
 	for i := range hits {
 		if hits[i].To != fqn {
 			hits[i].Resolved = false
 		}
 	}
-	return dedupeEdges(hits), nil
+	sort.SliceStable(hits, func(i, j int) bool {
+		hi, hj := hits[i], hits[j]
+		if (hi.To == fqn) != (hj.To == fqn) {
+			return hi.To == fqn
+		}
+		if hi.Resolved != hj.Resolved {
+			return hi.Resolved
+		}
+		if hi.File != hj.File {
+			return hi.File < hj.File
+		}
+		return hi.Line < hj.Line
+	})
+	hits = dedupeEdges(hits)
+	if len(hits) > limit {
+		hits = hits[:limit]
+	}
+	return hits, nil
+}
+
+// hierarchyStep expands one BFS frontier in the class hierarchy.
+// direction "up" follows from->to (ancestors), "down" to->from
+// (descendants). Queries hit edges and ext_edges directly — a
+// recursive CTE over the all_edges UNION view cannot use their
+// indexes and degrades to full scans per iteration.
+func (e *Engine) hierarchyStep(frontier []string, direction string) (map[string]string, error) {
+	srcCol, dstCol := "from_fqn", "to_fqn"
+	if direction == "down" {
+		srcCol, dstCol = "to_fqn", "from_fqn"
+	}
+	out := map[string]string{} // discovered fqn -> edge kind
+	for start := 0; start < len(frontier); start += 400 {
+		chunk := frontier[start:min(start+400, len(frontier))]
+		placeholders := strings.Repeat("?, ", len(chunk)-1) + "?"
+		args := make([]any, 0, len(chunk)*2)
+		for _, c := range chunk {
+			args = append(args, c)
+		}
+		for _, c := range chunk {
+			args = append(args, c)
+		}
+		rows, err := e.s.DB().Query(`
+			SELECT `+dstCol+`, kind FROM edges
+				WHERE kind IN ('extends', 'implements', 'uses_trait') AND `+srcCol+` IN (`+placeholders+`)
+			UNION
+			SELECT `+dstCol+`, kind FROM ext_edges
+				WHERE kind IN ('extends', 'implements', 'uses_trait') AND `+srcCol+` IN (`+placeholders+`)`,
+			args...)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var fqn, kind string
+			if err := rows.Scan(&fqn, &kind); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			out[fqn] = kind
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
+	}
+	return out, nil
+}
+
+// closure BFS-expands from a class in one direction until fixpoint,
+// returning discovered fqn -> linking edge kind (start excluded).
+func (e *Engine) closure(class, direction string, cap int) (map[string]string, error) {
+	seen := map[string]string{}
+	frontier := []string{class}
+	for len(frontier) > 0 && len(seen) < cap {
+		found, err := e.hierarchyStep(frontier, direction)
+		if err != nil {
+			return nil, err
+		}
+		frontier = frontier[:0]
+		for fqn, kind := range found {
+			if fqn == class {
+				continue
+			}
+			if _, ok := seen[fqn]; !ok {
+				seen[fqn] = kind
+				frontier = append(frontier, fqn)
+			}
+		}
+	}
+	return seen, nil
+}
+
+// family returns the transitive hierarchy neighborhood of a class:
+// itself, its ancestors and its descendants.
+func (e *Engine) family(class string) ([]string, error) {
+	up, err := e.closure(class, "up", 200)
+	if err != nil {
+		return nil, err
+	}
+	down, err := e.closure(class, "down", 2000)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(up)+len(down)+1)
+	out = append(out, class)
+	for fqn := range up {
+		out = append(out, fqn)
+	}
+	for fqn := range down {
+		if _, ok := up[fqn]; !ok {
+			out = append(out, fqn)
+		}
+	}
+	return out, nil
 }
 
 // methodSplit splits a member FQN into its container and member parts:
@@ -382,42 +505,23 @@ type Relative struct {
 // Hierarchy returns supertypes and subtypes of a class-like symbol,
 // each transitively closed.
 func (e *Engine) Hierarchy(fqn string) (ancestors, descendants []Relative, err error) {
-	collect := func(query string) ([]Relative, error) {
-		rows, err := e.s.DB().Query(query, fqn)
-		if err != nil {
-			return nil, err
+	toRelatives := func(m map[string]string) []Relative {
+		out := make([]Relative, 0, len(m))
+		for f, kind := range m {
+			out = append(out, Relative{FQN: f, Kind: kind})
 		}
-		defer rows.Close()
-		var out []Relative
-		for rows.Next() {
-			var r Relative
-			if err := rows.Scan(&r.FQN, &r.Kind); err != nil {
-				return nil, err
-			}
-			out = append(out, r)
-		}
-		return out, rows.Err()
+		sort.Slice(out, func(i, j int) bool { return out[i].FQN < out[j].FQN })
+		return out
 	}
-	ancestors, err = collect(`
-		WITH RECURSIVE up(fqn, kind) AS (
-			SELECT ?, ''
-			UNION
-			SELECT e.to_fqn, e.kind FROM all_edges e JOIN up ON e.from_fqn = up.fqn
-				AND e.kind IN ('extends', 'implements', 'uses_trait')
-		)
-		SELECT fqn, kind FROM up WHERE kind != '' LIMIT 200`)
+	up, err := e.closure(fqn, "up", 200)
 	if err != nil {
 		return nil, nil, err
 	}
-	descendants, err = collect(`
-		WITH RECURSIVE down(fqn, kind) AS (
-			SELECT ?, ''
-			UNION
-			SELECT e.from_fqn, e.kind FROM all_edges e JOIN down ON e.to_fqn = down.fqn
-				AND e.kind IN ('extends', 'implements', 'uses_trait')
-		)
-		SELECT fqn, kind FROM down WHERE kind != '' LIMIT 500`)
-	return ancestors, descendants, err
+	down, err := e.closure(fqn, "down", 2000)
+	if err != nil {
+		return nil, nil, err
+	}
+	return toRelatives(up), toRelatives(down), nil
 }
 
 // FileOutline lists all symbols declared in a file.

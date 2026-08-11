@@ -63,17 +63,41 @@ All progress output goes to stderr; stdout carries the MCP protocol.`,
 			}
 			defer s.Close()
 
-			if !noIndex {
-				logf("updating index...")
+			refresh := func() error {
 				stats, err := indexer.Run(indexer.Options{Root: absRoot, Store: s, Cfg: cfg})
 				if err != nil {
 					return fmt.Errorf("index update: %w", err)
 				}
-				logf("index refresh: %d reindexed, %d unchanged, %s",
-					stats.Indexed, stats.Unchanged, stats.Duration.Round(10_000_000))
+				logf("index refresh: %d reindexed, %d unchanged, %d removed, %s",
+					stats.Indexed, stats.Unchanged, stats.Removed,
+					stats.Duration.Round(10_000_000))
+				if err := enrich.AutoImport(s, absRoot, logf); err != nil {
+					logf("enrich auto-import: %v", err)
+				}
+				return nil
 			}
-			if err := enrich.AutoImport(s, absRoot, logf); err != nil {
-				logf("enrich auto-import: %v", err)
+
+			// An index that already has data serves immediately and
+			// refreshes in the background — agents get their first
+			// tool response in milliseconds instead of waiting for a
+			// full-tree scan. An empty index must be built first.
+			if !noIndex {
+				existing, err := s.Stats()
+				if err != nil {
+					return err
+				}
+				if existing.Files == 0 {
+					logf("empty index — building before serving...")
+					if err := refresh(); err != nil {
+						return err
+					}
+				} else {
+					go func() {
+						if err := refresh(); err != nil {
+							logf("background %v", err)
+						}
+					}()
+				}
 			}
 			logServeStatus(s, absRoot, logf)
 
