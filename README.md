@@ -37,8 +37,13 @@ file-local AST-эвристик. Рёбра хранятся в
 
 ## Использование
 
+Сборка требует build-тег `sqlite_fts5` (FTS5 в mattn/go-sqlite3);
+без тега компиляция намеренно падает с понятной ошибкой. Проще через
+Makefile:
+
 ```sh
-go install ./cmd/kartograf
+make install        # go install -tags sqlite_fts5 ./cmd/kartograf
+make check          # build + vet + test + fmt
 
 kartograf index [root]                      # построить/обновить индекс
 kartograf index --rebuild                   # с нуля
@@ -76,7 +81,8 @@ claude mcp add kartograf -- kartograf serve /path/to/project
 молча пересобирается.
 
 Ориентиры на монолите api (~79k PHP-файлов с vendor, ~885k символов):
-холодный индекс ~75 с, тёплый прогон ~1.5 с.
+холодный индекс ~19 с (bulk-режим: батчевые вставки, индексы и FTS
+строятся один раз после заливки), тёплый прогон ~1.5 с.
 
 ### Конфиг проекта — `.kartograf.yml` (опционально)
 

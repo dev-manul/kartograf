@@ -101,7 +101,14 @@ func Run(opts Options) (*Stats, error) {
 		close(results)
 	}()
 
-	w, err := opts.Store.BeginWrite()
+	// A fresh database takes the bulk path: secondary indexes and FTS
+	// are built once after the load instead of per row.
+	var w *store.Writer
+	if len(known) == 0 {
+		w, err = opts.Store.BeginBulkWrite()
+	} else {
+		w, err = opts.Store.BeginWrite()
+	}
 	if err != nil {
 		return nil, err
 	}

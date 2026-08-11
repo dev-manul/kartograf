@@ -12,8 +12,9 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
-	_ "modernc.org/sqlite"
+	_ "github.com/mattn/go-sqlite3"
 
 	"gitlab.stripchat.dev/stripcash/kartograf/internal/core/model"
 )
@@ -56,18 +57,12 @@ CREATE TABLE IF NOT EXISTS symbols (
 	doc        TEXT NOT NULL DEFAULT '',
 	words      TEXT NOT NULL DEFAULT '' -- camelCase-split name for FTS
 );
-CREATE INDEX IF NOT EXISTS idx_symbols_file      ON symbols(file_id);
-CREATE INDEX IF NOT EXISTS idx_symbols_fqn       ON symbols(fqn);
-CREATE INDEX IF NOT EXISTS idx_symbols_name      ON symbols(name);
-CREATE INDEX IF NOT EXISTS idx_symbols_container ON symbols(container);
-
 CREATE TABLE IF NOT EXISTS imports (
 	file_id INTEGER NOT NULL,
 	alias   TEXT NOT NULL,
 	fqn     TEXT NOT NULL,
 	kind    TEXT NOT NULL DEFAULT ''
 );
-CREATE INDEX IF NOT EXISTS idx_imports_file ON imports(file_id);
 
 CREATE TABLE IF NOT EXISTS edges (
 	file_id  INTEGER NOT NULL,
@@ -77,9 +72,6 @@ CREATE TABLE IF NOT EXISTS edges (
 	resolved INTEGER NOT NULL DEFAULT 1,
 	line     INTEGER NOT NULL DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS idx_edges_file ON edges(file_id);
-CREATE INDEX IF NOT EXISTS idx_edges_from ON edges(from_fqn, kind);
-CREATE INDEX IF NOT EXISTS idx_edges_to   ON edges(to_fqn, kind);
 
 -- ext_edges hold enrichment data (PHPStan / go-types type-inference
 -- exports). They are replaced wholesale per source on import and are
@@ -108,6 +100,21 @@ CREATE VIRTUAL TABLE IF NOT EXISTS symbols_fts USING fts5(
 	name, fqn, doc, words,
 	content='symbols', content_rowid='rowid'
 );
+` + secondaryDDL
+
+// secondaryDDL holds the indexes and FTS-sync triggers. Bulk loads
+// drop them first and recreate them after the data is in (plus one
+// FTS rebuild), which is much cheaper than maintaining them row by
+// row across ~10^6 inserts.
+const secondaryDDL = `
+CREATE INDEX IF NOT EXISTS idx_symbols_file      ON symbols(file_id);
+CREATE INDEX IF NOT EXISTS idx_symbols_fqn       ON symbols(fqn);
+CREATE INDEX IF NOT EXISTS idx_symbols_name      ON symbols(name);
+CREATE INDEX IF NOT EXISTS idx_symbols_container ON symbols(container);
+CREATE INDEX IF NOT EXISTS idx_imports_file      ON imports(file_id);
+CREATE INDEX IF NOT EXISTS idx_edges_file        ON edges(file_id);
+CREATE INDEX IF NOT EXISTS idx_edges_from        ON edges(from_fqn, kind);
+CREATE INDEX IF NOT EXISTS idx_edges_to          ON edges(to_fqn, kind);
 CREATE TRIGGER IF NOT EXISTS symbols_ai AFTER INSERT ON symbols BEGIN
 	INSERT INTO symbols_fts(rowid, name, fqn, doc, words)
 	VALUES (new.rowid, new.name, new.fqn, new.doc, new.words);
@@ -116,6 +123,20 @@ CREATE TRIGGER IF NOT EXISTS symbols_ad AFTER DELETE ON symbols BEGIN
 	INSERT INTO symbols_fts(symbols_fts, rowid, name, fqn, doc, words)
 	VALUES ('delete', old.rowid, old.name, old.fqn, old.doc, old.words);
 END;
+`
+
+// dropSecondaryDDL mirrors secondaryDDL for bulk loads.
+const dropSecondaryDDL = `
+DROP INDEX IF EXISTS idx_symbols_file;
+DROP INDEX IF EXISTS idx_symbols_fqn;
+DROP INDEX IF EXISTS idx_symbols_name;
+DROP INDEX IF EXISTS idx_symbols_container;
+DROP INDEX IF EXISTS idx_imports_file;
+DROP INDEX IF EXISTS idx_edges_file;
+DROP INDEX IF EXISTS idx_edges_from;
+DROP INDEX IF EXISTS idx_edges_to;
+DROP TRIGGER IF EXISTS symbols_ai;
+DROP TRIGGER IF EXISTS symbols_ad;
 `
 
 type Store struct {
@@ -149,10 +170,10 @@ func open(path, projectRoot string, retry bool) (*Store, error) {
 		return nil, err
 	}
 	dsn := "file:" + path +
-		"?_pragma=journal_mode(WAL)" +
-		"&_pragma=synchronous(NORMAL)" +
-		"&_pragma=busy_timeout(5000)"
-	db, err := sql.Open("sqlite", dsn)
+		"?_journal_mode=WAL" +
+		"&_synchronous=NORMAL" +
+		"&_busy_timeout=5000"
+	db, err := sql.Open("sqlite3", dsn)
 	if err != nil {
 		return nil, err
 	}
@@ -266,19 +287,70 @@ type FileData struct {
 	Indexed int64 // unix seconds
 }
 
-// Writer batches index mutations in a single transaction with
-// prepared statements (the insert path is hot on cold runs).
-type Writer struct {
-	tx    *sql.Tx
-	stmts map[string]*sql.Stmt
+// batchRows is the multi-row INSERT flush threshold. 500 rows of the
+// widest table (symbols, 14 cols) is 7000 placeholders — well under
+// SQLite's variable limit (32766).
+const batchRows = 500
+
+// batch accumulates rows for one table and flushes them as multi-row
+// INSERTs.
+type batch struct {
+	insert string // "INSERT INTO t (a, b) VALUES "
+	nCols  int
+	args   []any
+	nRows  int
 }
 
-func (s *Store) BeginWrite() (*Writer, error) {
+func newBatch(insert string, nCols int) *batch {
+	return &batch{insert: insert, nCols: nCols}
+}
+
+// Writer batches index mutations in a single transaction with
+// multi-row inserts (the insert path is hot on cold runs). In bulk
+// mode (fresh database) secondary indexes and FTS triggers are
+// dropped up front and rebuilt once at Commit.
+type Writer struct {
+	tx         *sql.Tx
+	stmts      map[string]*sql.Stmt
+	bulk       bool
+	nextFileID int64
+
+	files, symbols, imports, edges *batch
+}
+
+func (s *Store) BeginWrite() (*Writer, error) { return s.beginWrite(false) }
+
+// BeginBulkWrite is BeginWrite for loading into an empty index: it
+// defers index/FTS maintenance to Commit. Callers must not rely on
+// per-file deletes (there is nothing to delete in a fresh database).
+func (s *Store) BeginBulkWrite() (*Writer, error) { return s.beginWrite(true) }
+
+func (s *Store) beginWrite(bulk bool) (*Writer, error) {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return nil, err
 	}
-	return &Writer{tx: tx, stmts: map[string]*sql.Stmt{}}, nil
+	w := &Writer{
+		tx:    tx,
+		stmts: map[string]*sql.Stmt{},
+		bulk:  bulk,
+		files: newBatch(`INSERT INTO files (id, path, lang, hash, size, mtime_ns, vendor, has_errors, indexed_at) VALUES `, 9),
+		symbols: newBatch(`INSERT INTO symbols (file_id, sym_id, lang, kind, name, fqn, container,
+			start_line, start_col, end_line, end_col, signature, doc, words) VALUES `, 14),
+		imports: newBatch(`INSERT INTO imports (file_id, alias, fqn, kind) VALUES `, 4),
+		edges:   newBatch(`INSERT INTO edges (file_id, from_fqn, kind, to_fqn, resolved, line) VALUES `, 6),
+	}
+	if err := tx.QueryRow(`SELECT COALESCE(MAX(id), 0) FROM files`).Scan(&w.nextFileID); err != nil {
+		tx.Rollback()
+		return nil, err
+	}
+	if bulk {
+		if _, err := tx.Exec(dropSecondaryDDL); err != nil {
+			tx.Rollback()
+			return nil, err
+		}
+	}
+	return w, nil
 }
 
 func (w *Writer) stmt(query string) (*sql.Stmt, error) {
@@ -301,32 +373,77 @@ func (w *Writer) exec(query string, args ...any) (sql.Result, error) {
 	return st.Exec(args...)
 }
 
-func (w *Writer) Commit() error   { return w.tx.Commit() }
+func (w *Writer) add(b *batch, vals ...any) error {
+	b.args = append(b.args, vals...)
+	b.nRows++
+	if b.nRows >= batchRows {
+		return w.flush(b)
+	}
+	return nil
+}
+
+func (w *Writer) flush(b *batch) error {
+	if b.nRows == 0 {
+		return nil
+	}
+	row := "(" + strings.Repeat("?, ", b.nCols-1) + "?)"
+	query := b.insert + strings.Repeat(row+", ", b.nRows-1) + row
+	// Full-size batches share one prepared statement; odd-sized tails
+	// are one-off but rare.
+	if _, err := w.exec(query, b.args...); err != nil {
+		return err
+	}
+	b.args = b.args[:0]
+	b.nRows = 0
+	return nil
+}
+
+func (w *Writer) flushAll() error {
+	for _, b := range []*batch{w.files, w.symbols, w.imports, w.edges} {
+		if err := w.flush(b); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (w *Writer) Commit() error {
+	if err := w.flushAll(); err != nil {
+		return err
+	}
+	if w.bulk {
+		// One FTS rebuild from the content table, then indexes —
+		// still inside the same transaction.
+		if _, err := w.tx.Exec(`INSERT INTO symbols_fts(symbols_fts) VALUES ('rebuild')`); err != nil {
+			return err
+		}
+		if _, err := w.tx.Exec(secondaryDDL); err != nil {
+			return err
+		}
+	}
+	return w.tx.Commit()
+}
+
 func (w *Writer) Rollback() error { return w.tx.Rollback() }
 
 // ReplaceFile removes any previous data for the file and inserts the
 // fresh extraction result.
 func (w *Writer) ReplaceFile(d FileData) error {
-	if err := w.deleteFile(d.FI.Path); err != nil {
-		return err
+	if !w.bulk {
+		if err := w.deleteFile(d.FI.Path); err != nil {
+			return err
+		}
 	}
-	res, err := w.exec(
-		`INSERT INTO files (path, lang, hash, size, mtime_ns, vendor, has_errors, indexed_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		d.FI.Path, d.FI.Lang, d.Hash, d.Size, d.MtimeNs, boolInt(d.Vendor), boolInt(d.FI.HasErrors), d.Indexed,
-	)
-	if err != nil {
-		return err
-	}
-	fileID, err := res.LastInsertId()
-	if err != nil {
+	w.nextFileID++
+	fileID := w.nextFileID
+	if err := w.add(w.files,
+		fileID, d.FI.Path, d.FI.Lang, d.Hash, d.Size, d.MtimeNs,
+		boolInt(d.Vendor), boolInt(d.FI.HasErrors), d.Indexed,
+	); err != nil {
 		return err
 	}
 	for _, sym := range d.FI.Symbols {
-		if _, err := w.exec(
-			`INSERT INTO symbols (file_id, sym_id, lang, kind, name, fqn, container,
-				start_line, start_col, end_line, end_col, signature, doc, words)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		if err := w.add(w.symbols,
 			fileID, sym.ID, sym.Lang, string(sym.Kind), sym.Name, sym.FQN, sym.Container,
 			sym.Range.StartLine, sym.Range.StartCol, sym.Range.EndLine, sym.Range.EndCol,
 			sym.Signature, sym.Doc, SplitWords(sym.Name),
@@ -335,17 +452,12 @@ func (w *Writer) ReplaceFile(d FileData) error {
 		}
 	}
 	for _, imp := range d.FI.Imports {
-		if _, err := w.exec(
-			`INSERT INTO imports (file_id, alias, fqn, kind) VALUES (?, ?, ?, ?)`,
-			fileID, imp.Alias, imp.FQN, imp.Kind,
-		); err != nil {
+		if err := w.add(w.imports, fileID, imp.Alias, imp.FQN, imp.Kind); err != nil {
 			return err
 		}
 	}
 	for _, ref := range d.FI.Refs {
-		if _, err := w.exec(
-			`INSERT INTO edges (file_id, from_fqn, kind, to_fqn, resolved, line)
-			 VALUES (?, ?, ?, ?, ?, ?)`,
+		if err := w.add(w.edges,
 			fileID, ref.From, string(ref.Kind), ref.To, boolInt(ref.Resolved), ref.Line,
 		); err != nil {
 			return err
