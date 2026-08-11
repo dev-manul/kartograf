@@ -51,26 +51,31 @@ All progress output goes to stderr; stdout carries the MCP protocol.`,
 					return err
 				}
 			}
+			logf := func(format string, args ...any) {
+				fmt.Fprintf(os.Stderr, "kartograf: "+format+"\n", args...)
+			}
+			logf("%s, project %s", version, absRoot)
+			logf("index db %s", dbPath)
+
 			s, err := store.Open(dbPath, absRoot)
 			if err != nil {
-				return err
+				return fmt.Errorf("open index db %s: %w", dbPath, err)
 			}
 			defer s.Close()
 
 			if !noIndex {
-				fmt.Fprintln(os.Stderr, "kartograf: updating index...")
+				logf("updating index...")
 				stats, err := indexer.Run(indexer.Options{Root: absRoot, Store: s, Cfg: cfg})
 				if err != nil {
 					return fmt.Errorf("index update: %w", err)
 				}
-				fmt.Fprintf(os.Stderr, "kartograf: index ready (%d reindexed, %d unchanged, %s)\n",
+				logf("index refresh: %d reindexed, %d unchanged, %s",
 					stats.Indexed, stats.Unchanged, stats.Duration.Round(10_000_000))
 			}
-			if err := enrich.AutoImport(s, absRoot, func(format string, args ...any) {
-				fmt.Fprintf(os.Stderr, format+"\n", args...)
-			}); err != nil {
-				fmt.Fprintf(os.Stderr, "kartograf: enrich auto-import: %v\n", err)
+			if err := enrich.AutoImport(s, absRoot, logf); err != nil {
+				logf("enrich auto-import: %v", err)
 			}
+			logServeStatus(s, absRoot, logf)
 
 			// Fire-and-forget daily update check; the hint lands in
 			// the MCP server's stderr log.
@@ -88,4 +93,29 @@ All progress output goes to stderr; stdout carries the MCP protocol.`,
 	cmd.Flags().StringVar(&dbPath, "db", "", "path to the index database (default: user cache dir)")
 	cmd.Flags().BoolVar(&noIndex, "no-index", false, "serve the existing index without updating it")
 	return cmd
+}
+
+// logServeStatus reports what the server is actually working with:
+// index size, enrichment sources, and a warning when a PHP project
+// runs without type-inference edges (callers would be heuristic-only).
+func logServeStatus(s *store.Store, root string, logf func(format string, args ...any)) {
+	if total, err := s.Stats(); err == nil {
+		logf("index ready: %d files, %d symbols", total.Files, total.Symbols)
+	}
+	enrichStats, err := s.EnrichStats()
+	if err != nil {
+		return
+	}
+	if len(enrichStats) == 0 {
+		logf("enrich: none")
+	}
+	for source, n := range enrichStats {
+		logf("enrich %s: %d edges", source, n)
+	}
+	if langs, err := s.LangCounts(); err == nil {
+		if langs["php"] > 0 && enrichStats["phpstan"] == 0 {
+			logf("warning: PHP project without PHPStan enrichment — get_callers/get_callees "+
+				"resolve heuristically only; run `kartograf enrich php %s` for exact edges", root)
+		}
+	}
 }

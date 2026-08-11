@@ -38,15 +38,23 @@ by following these steps.
    claude mcp add kartograf -- "$HOME/.local/bin/kartograf" serve "$PWD"
    ```
 
-   For other MCP clients, add a stdio server to their config with
-   absolute paths:
+   For other MCP clients (Cursor, Windsurf, ...), add a stdio server
+   to their config. Use absolute paths, and note that Cursor requires
+   the `type` field:
 
    ```json
    {"mcpServers": {"kartograf": {
+     "type": "stdio",
      "command": "/home/user/.local/bin/kartograf",
      "args": ["serve", "/abs/path/to/project"]
    }}}
    ```
+
+   If the server doesn't appear: reload the MCP list (Cursor:
+   Settings → MCP), check the client's MCP logs — kartograf prints its
+   version, project root, index location and enrich status to stderr
+   on startup, and a clear reason when it fails before the handshake.
+   Troubleshooting checklist: docs/cursor.md.
 
 6. Tell the user to restart the session so the tools appear, and list
    what they will get: `search_symbols`, `get_symbol`,

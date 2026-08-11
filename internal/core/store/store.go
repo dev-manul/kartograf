@@ -563,6 +563,44 @@ func (s *Store) ImportedEnrichSources() ([]string, error) {
 	return out, rows.Err()
 }
 
+// EnrichStats returns enrichment edge counts per source.
+func (s *Store) EnrichStats() (map[string]int, error) {
+	rows, err := s.db.Query(`SELECT source, COUNT(*) FROM ext_edges GROUP BY source`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]int{}
+	for rows.Next() {
+		var src string
+		var n int
+		if err := rows.Scan(&src, &n); err != nil {
+			return nil, err
+		}
+		out[src] = n
+	}
+	return out, rows.Err()
+}
+
+// LangCounts returns non-vendor indexed file counts per language.
+func (s *Store) LangCounts() (map[string]int, error) {
+	rows, err := s.db.Query(`SELECT lang, COUNT(*) FROM files WHERE vendor = 0 GROUP BY lang`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]int{}
+	for rows.Next() {
+		var lang string
+		var n int
+		if err := rows.Scan(&lang, &n); err != nil {
+			return nil, err
+		}
+		out[lang] = n
+	}
+	return out, rows.Err()
+}
+
 // Meta reads an arbitrary metadata value ("" when absent).
 func (s *Store) Meta(key string) (string, error) {
 	var v string

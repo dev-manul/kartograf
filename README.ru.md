@@ -69,6 +69,9 @@ kartograf self-update                       # обновиться до посл
 claude mcp add kartograf -- kartograf serve /path/to/project
 ```
 
+Для Cursor и других stdio MCP-клиентов (обязателен `"type": "stdio"`)
+см. [docs/cursor.md](docs/cursor.md).
+
 Индекс лежит в кэше пользователя
 (`~/Library/Caches/kartograf/<проект>-<hash>/index.db` на macOS,
 `~/.cache/...` на Linux) — производный артефакт, в гит не коммитится.

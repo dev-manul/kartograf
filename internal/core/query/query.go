@@ -80,32 +80,44 @@ func ftsQuery(q string) string {
 }
 
 // SearchSymbols runs a full-text search over names, FQNs and docs.
-// kind optionally narrows to one symbol kind. Project symbols rank
-// before vendor ones.
-func (e *Engine) SearchSymbols(q, kind string, limit int) ([]SymbolHit, error) {
+// kind optionally narrows to one symbol kind, name to an exact symbol
+// name. total is the number of matches regardless of limit/offset.
+func (e *Engine) SearchSymbols(q, kind, name string, limit, offset int) (hits []SymbolHit, total int, err error) {
 	match := ftsQuery(q)
 	if match == "" {
-		return nil, fmt.Errorf("empty query")
+		return nil, 0, fmt.Errorf("empty query")
 	}
-	args := []any{match}
-	kindFilter := ""
+	filter := ""
+	filterArgs := []any{match}
 	if kind != "" {
-		kindFilter = " AND s.kind = ?"
-		args = append(args, kind)
+		filter += " AND s.kind = ?"
+		filterArgs = append(filterArgs, kind)
 	}
-	args = append(args, limit)
+	if name != "" {
+		filter += " AND s.name = ?"
+		filterArgs = append(filterArgs, name)
+	}
+
+	if err := e.s.DB().QueryRow(`SELECT COUNT(*) FROM symbols s
+		JOIN symbols_fts ON symbols_fts.rowid = s.rowid
+		WHERE symbols_fts MATCH ?`+filter, filterArgs...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
 	// Ranking: project code first, then tests, then vendor; FTS rank
 	// within each group.
+	args := append(filterArgs, limit, offset)
 	rows, err := e.s.DB().Query(`SELECT `+symbolCols+`
 		JOIN symbols_fts ON symbols_fts.rowid = s.rowid
-		WHERE symbols_fts MATCH ?`+kindFilter+`
+		WHERE symbols_fts MATCH ?`+filter+`
 		ORDER BY f.vendor ASC,
 			(f.path LIKE 'tests/%' OR f.path LIKE '%/tests/%' OR f.path LIKE '%/Tests/%') ASC,
-			rank LIMIT ?`, args...)
+			rank LIMIT ? OFFSET ?`, args...)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	return scanHits(rows)
+	hits, err = scanHits(rows)
+	return hits, total, err
 }
 
 // GetSymbol returns all declarations matching an FQN. When the given

@@ -25,9 +25,11 @@ func New(q *query.Engine, version string) *mcp.Server {
 }
 
 type searchIn struct {
-	Query string `json:"query" jsonschema:"free-text search over symbol names, FQNs and doc comments; multiple words are ANDed, each matched as a prefix"`
-	Kind  string `json:"kind,omitempty" jsonschema:"optional filter: class, interface, trait, enum, enum_case, method, function, property, constant"`
-	Limit int    `json:"limit,omitempty" jsonschema:"max results, default 50"`
+	Query  string `json:"query" jsonschema:"free-text search over symbol names, FQNs and doc comments; multiple words are ANDed, each matched as a prefix"`
+	Kind   string `json:"kind,omitempty" jsonschema:"optional filter: class, interface, trait, enum, enum_case, method, function, property, constant"`
+	Name   string `json:"name,omitempty" jsonschema:"optional exact symbol name filter: name=create matches create() but not createUser()"`
+	Limit  int    `json:"limit,omitempty" jsonschema:"max results per page, default 50, max 500"`
+	Offset int    `json:"offset,omitempty" jsonschema:"skip this many results (pagination; ordering is stable: project, then tests, then vendor, FTS rank within)"`
 }
 
 type fqnIn struct {
@@ -54,6 +56,10 @@ type symbolOut struct {
 // results are wrapped.
 type symbolsOut struct {
 	Results []query.SymbolHit `json:"results"`
+	// Total is the number of matches regardless of limit/offset;
+	// Truncated signals that results is an incomplete page.
+	Total     int  `json:"total"`
+	Truncated bool `json:"truncated"`
 }
 
 type declarationsOut struct {
@@ -64,11 +70,17 @@ type edgesOut struct {
 	Results []query.EdgeHit `json:"results"`
 }
 
+const maxLimit = 500
+
 func limit(n int) int {
-	if n <= 0 || n > 500 {
+	switch {
+	case n <= 0:
 		return defaultLimit
+	case n > maxLimit:
+		return maxLimit
+	default:
+		return n
 	}
-	return n
 }
 
 // nonNil keeps empty results as [] (not null) in JSON output.
@@ -93,16 +105,24 @@ func register(s *mcp.Server, q *query.Engine) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "search_symbols",
 		Description: "Search code symbols (classes, methods, functions, constants...) by name or doc text. " +
-			"Returns FQN, kind, file:line, signature. Project symbols rank before vendor ones.",
+			"Args: query (free text), kind, name (exact symbol name), limit (max 500), offset. " +
+			"Returns FQN, kind, file:line, signature, plus total/truncated for the full match count " +
+			"(set limit=1 to just count). Project symbols rank before vendor ones.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in searchIn) (*mcp.CallToolResult, symbolsOut, error) {
-		hits, err := q.SearchSymbols(in.Query, in.Kind, limit(in.Limit))
-		return nil, symbolsOut{Results: nonNil(hits)}, err
+		lim := limit(in.Limit)
+		hits, total, err := q.SearchSymbols(in.Query, in.Kind, in.Name, lim, max(in.Offset, 0))
+		return nil, symbolsOut{
+			Results:   nonNil(hits),
+			Total:     total,
+			Truncated: in.Offset > 0 || len(hits) < total,
+		}, err
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "get_symbol",
-		Description: "Get a symbol's declaration details by FQN: location, signature, doc, members " +
-			"(for classes/interfaces/traits/enums) and optionally its source code.",
+		Description: "Get a symbol's declaration details. Args: fqn (full FQN or bare trailing segment " +
+			"like UserService or Foo::bar()), includeSource (bool). Returns location, signature, doc, " +
+			"members (for classes/interfaces/traits/enums) and optionally source code.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in getSymbolIn) (*mcp.CallToolResult, declarationsOut, error) {
 		var zero declarationsOut
 		hits, err := q.GetSymbol(in.FQN)
@@ -171,14 +191,15 @@ func register(s *mcp.Server, q *query.Engine) {
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
-		Name:        "file_outline",
-		Description: "List all symbols declared in a file (root-relative path).",
+		Name: "file_outline",
+		Description: "List all symbols declared in a file. Args: path (project-root-relative, " +
+			"forward slashes; not 'file').",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in outlineIn) (*mcp.CallToolResult, symbolsOut, error) {
 		var zero symbolsOut
 		hits, err := q.FileOutline(in.Path)
 		if err == nil && len(hits) == 0 {
 			return nil, zero, fmt.Errorf("no symbols for %q — check that the path is project-root-relative", in.Path)
 		}
-		return nil, symbolsOut{Results: nonNil(hits)}, err
+		return nil, symbolsOut{Results: nonNil(hits), Total: len(hits)}, err
 	})
 }

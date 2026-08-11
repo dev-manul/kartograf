@@ -70,6 +70,9 @@ Registering in Claude Code:
 claude mcp add kartograf -- kartograf serve /path/to/project
 ```
 
+For Cursor and other stdio MCP clients (note the required
+`"type": "stdio"`) see [docs/cursor.md](docs/cursor.md).
+
 The index lives in the user cache dir
 (`~/Library/Caches/kartograf/<project>-<hash>/index.db` on macOS,
 `~/.cache/...` on Linux) — a derived artifact, never committed. On a
