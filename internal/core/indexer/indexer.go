@@ -177,7 +177,9 @@ func process(opts Options, known map[string]store.FileMeta, e entry) result {
 	if adapter == nil {
 		return result{entry: e, err: fmt.Errorf("no language adapter")}
 	}
-	fi, err := adapter.ExtractFile(e.rel, data)
+	// Vendor code is indexed shallow: declarations and hierarchy only,
+	// its internal call graph is noise.
+	fi, err := adapter.ExtractFile(e.rel, data, lang.ExtractOptions{SkipRefs: e.vendor})
 	if err != nil {
 		return result{entry: e, err: err}
 	}

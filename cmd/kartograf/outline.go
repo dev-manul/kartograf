@@ -50,7 +50,7 @@ func extractPath(path string) (*model.FileIndex, error) {
 	if err != nil {
 		return nil, err
 	}
-	return adapter.ExtractFile(path, src)
+	return adapter.ExtractFile(path, src, lang.ExtractOptions{})
 }
 
 func printOutline(fi *model.FileIndex) {
@@ -61,8 +61,11 @@ func printOutline(fi *model.FileIndex) {
 	fmt.Printf("%s — %s, %d symbols%s\n", fi.Path, fi.Lang, len(fi.Symbols), suffix)
 
 	rels := map[string][]string{}
-	for _, r := range fi.TypeRels {
-		rels[r.From] = append(rels[r.From], fmt.Sprintf("%s %s", r.Rel, r.To))
+	for _, r := range fi.Refs {
+		switch r.Kind {
+		case model.EdgeExtends, model.EdgeImplements, model.EdgeUsesTrait:
+			rels[r.From] = append(rels[r.From], fmt.Sprintf("%s %s", r.Kind, r.To))
+		}
 	}
 
 	for _, s := range fi.Symbols {

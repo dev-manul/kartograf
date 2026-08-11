@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"gitlab.stripchat.dev/stripcash/kartograf/internal/core/lang"
 	"gitlab.stripchat.dev/stripcash/kartograf/internal/core/model"
 )
 
@@ -14,11 +15,19 @@ func extractFixture(t *testing.T, name string) *model.FileIndex {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fi, err := New().ExtractFile("testdata/"+name, src)
+	fi, err := New().ExtractFile("testdata/"+name, src, lang.ExtractOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return fi
+}
+
+func refSet(fi *model.FileIndex) map[string]bool {
+	m := map[string]bool{}
+	for _, r := range fi.Refs {
+		m[r.From+" "+string(r.Kind)+" "+r.To] = true
+	}
+	return m
 }
 
 func symbolsByFQN(fi *model.FileIndex) map[string]model.Symbol {
@@ -101,28 +110,21 @@ func TestKitchenSinkImports(t *testing.T) {
 	}
 }
 
-func TestKitchenSinkTypeRels(t *testing.T) {
+func TestKitchenSinkInheritance(t *testing.T) {
 	fi := extractFixture(t, "kitchen_sink.php")
+	got := refSet(fi)
 
-	type rel struct {
-		from string
-		rel  model.EdgeKind
-		to   string
-	}
-	want := []rel{
-		{`App\Service\UserService`, model.EdgeExtends, "AbstractService"},
-		{`App\Service\UserService`, model.EdgeImplements, "RepositoryInterface"},
-		{`App\Service\UserService`, model.EdgeImplements, `\Countable`},
-		{`App\Service\UserService`, model.EdgeUsesTrait, `\App\Traits\LoggerAwareTrait`},
-		{`App\Service\UserService`, model.EdgeUsesTrait, "Cacheable"},
-	}
-	got := map[rel]bool{}
-	for _, r := range fi.TypeRels {
-		got[rel{r.From, r.Rel, r.To}] = true
+	// Names are resolved with the file's namespace and use-map.
+	want := []string{
+		`App\Service\UserService extends App\Service\AbstractService`,
+		`App\Service\UserService implements App\Contracts\RepositoryInterface`,
+		`App\Service\UserService implements Countable`,
+		`App\Service\UserService uses_trait App\Traits\LoggerAwareTrait`,
+		`App\Service\UserService uses_trait App\Service\Cacheable`,
 	}
 	for _, w := range want {
 		if !got[w] {
-			t.Errorf("missing type relation %+v (have %+v)", w, fi.TypeRels)
+			t.Errorf("missing edge %q", w)
 		}
 	}
 }
@@ -154,3 +156,83 @@ func TestDocAndSignature(t *testing.T) {
 }
 
 func contains(s, sub string) bool { return strings.Contains(s, sub) }
+
+func TestRefsResolution(t *testing.T) {
+	fi := extractFixture(t, "refs.php")
+	if fi.HasErrors {
+		t.Error("unexpected parse errors in fixture")
+	}
+	got := refSet(fi)
+	run := `App\Service\UserService::run()`
+
+	want := []string{
+		// instantiation via use-map and alias
+		run + ` instantiates App\Repo\UserRepository`,
+		run + ` instantiates App\Events\UserCreated`,
+		// static call, constant, ::class, static property
+		run + ` calls App\Repo\UserRepository::create()`,
+		run + ` references App\Repo\UserRepository::MAX_ROWS`,
+		run + ` references_type App\Events\UserCreated`,
+		run + ` references App\Service\Registry::$instances`,
+		// $this / self / parent
+		run + ` calls App\Service\UserService::helper()`,
+		run + ` calls App\Service\BaseService::boot()`,
+		// typed property (declared and promoted), typed parameter
+		run + ` calls App\Repo\UserRepository::find()`,
+		run + ` calls App\Service\Mailer::send()`,
+		run + ` calls App\Service\Request::getBody()`,
+		// functions: imported, global builtin, fully qualified
+		run + ` calls App\Helpers\slug()`,
+		run + ` calls strtolower()`,
+		run + ` calls App\Helpers\other()`,
+		// catch clause types
+		run + ` references_type App\Service\NotFound`,
+		run + ` references_type RuntimeException`,
+		// signature type hints
+		run + ` references_type App\Service\Request`,
+		run + ` references_type App\Models\User`,
+		// inheritance
+		`App\Service\UserService extends App\Service\BaseService`,
+	}
+	for _, w := range want {
+		if !got[w] {
+			t.Errorf("missing ref %q", w)
+		}
+	}
+
+	// Heuristic refs must be flagged as unresolved.
+	for _, r := range fi.Refs {
+		exactByRule := map[string]bool{
+			run + " calls App\\Service\\BaseService::boot()":   false, // parent:: may climb higher
+			run + " calls App\\Repo\\UserRepository::find()":   false, // property type heuristic
+			run + " calls strtolower()":                        false, // ns fallback ambiguity
+			run + " calls App\\Repo\\UserRepository::create()": true,
+		}
+		key := r.From + " " + string(r.Kind) + " " + r.To
+		if wantExact, ok := exactByRule[key]; ok && r.Resolved != wantExact {
+			t.Errorf("%s: resolved = %v, want %v", key, r.Resolved, wantExact)
+		}
+	}
+}
+
+func TestSkipRefs(t *testing.T) {
+	src, err := os.ReadFile("testdata/refs.php")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fi, err := New().ExtractFile("testdata/refs.php", src, lang.ExtractOptions{SkipRefs: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range fi.Refs {
+		switch r.Kind {
+		case model.EdgeExtends, model.EdgeImplements, model.EdgeUsesTrait:
+			// hierarchy facts are kept even in shallow mode
+		default:
+			t.Errorf("unexpected ref in shallow mode: %+v", r)
+		}
+	}
+	if len(fi.Symbols) == 0 {
+		t.Error("symbols must still be extracted in shallow mode")
+	}
+}

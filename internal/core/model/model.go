@@ -20,18 +20,16 @@ const (
 )
 
 // EdgeKind enumerates language-neutral relations between symbols.
-// Phase 1 only records extends/implements/uses_trait facts as raw names;
-// resolution into edges happens in the resolve phase.
 type EdgeKind string
 
 const (
-	EdgeCalls          EdgeKind = "calls"
+	EdgeCalls          EdgeKind = "calls" // method/function invocation
 	EdgeExtends        EdgeKind = "extends"
 	EdgeImplements     EdgeKind = "implements"
 	EdgeUsesTrait      EdgeKind = "uses_trait"
-	EdgeInstantiates   EdgeKind = "instantiates"
-	EdgeReferencesType EdgeKind = "references_type"
-	EdgeImports        EdgeKind = "imports"
+	EdgeInstantiates   EdgeKind = "instantiates"    // new X
+	EdgeReferencesType EdgeKind = "references_type" // type hints, instanceof, ::class, attributes, catch
+	EdgeReferences     EdgeKind = "references"      // constant / static property access
 )
 
 // Range is a location inside a file. Lines and columns are 1-based.
@@ -68,22 +66,30 @@ type Import struct {
 	Kind  string `json:"kind,omitempty"` // "", "function", "const"
 }
 
-// TypeRel is an unresolved inheritance-like fact recorded during
-// extraction: "class with FQN From <rel> name To" where To is written
-// as it appears in source (resolved to an FQN later).
-type TypeRel struct {
-	From string   `json:"from"`
-	Rel  EdgeKind `json:"rel"`
-	To   string   `json:"to"`
+// Ref is a relation from an enclosing symbol to a referenced one,
+// resolved at extraction time with file-local knowledge (namespace,
+// use-map, class context, typed members).
+//
+// Resolved=true means To is an exact FQN per language name-resolution
+// rules. Resolved=false means To is a best-effort guess (e.g. a method
+// that may actually be defined on a parent class, or an unqualified
+// function that may fall back to the global namespace) — still useful,
+// but consumers should treat it as heuristic.
+type Ref struct {
+	From     string   `json:"from"` // enclosing symbol FQN; "" = file level
+	Kind     EdgeKind `json:"kind"`
+	To       string   `json:"to"`
+	Resolved bool     `json:"resolved"`
+	Line     int      `json:"line"`
 }
 
 // FileIndex is everything extracted from a single file.
 type FileIndex struct {
-	Path     string    `json:"path"`
-	Lang     string    `json:"lang"`
-	Symbols  []Symbol  `json:"symbols"`
-	Imports  []Import  `json:"imports,omitempty"`
-	TypeRels []TypeRel `json:"typeRels,omitempty"`
+	Path    string   `json:"path"`
+	Lang    string   `json:"lang"`
+	Symbols []Symbol `json:"symbols"`
+	Imports []Import `json:"imports,omitempty"`
+	Refs    []Ref    `json:"refs,omitempty"`
 	// HasErrors reports that the parse tree contained ERROR nodes;
 	// extraction is best-effort in that case.
 	HasErrors bool `json:"hasErrors,omitempty"`

@@ -20,7 +20,7 @@ import (
 
 // schemaVersion is bumped on any incompatible schema change; a version
 // mismatch drops and recreates the database (it is cheap to rebuild).
-const schemaVersion = 2
+const schemaVersion = 3
 
 const schema = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -67,14 +67,17 @@ CREATE TABLE IF NOT EXISTS imports (
 );
 CREATE INDEX IF NOT EXISTS idx_imports_file ON imports(file_id);
 
-CREATE TABLE IF NOT EXISTS type_rels (
+CREATE TABLE IF NOT EXISTS edges (
 	file_id  INTEGER NOT NULL,
-	from_fqn TEXT NOT NULL,
-	rel      TEXT NOT NULL,
-	to_name  TEXT NOT NULL
+	from_fqn TEXT NOT NULL, -- '' = file-level code
+	kind     TEXT NOT NULL,
+	to_fqn   TEXT NOT NULL,
+	resolved INTEGER NOT NULL DEFAULT 1,
+	line     INTEGER NOT NULL DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS idx_type_rels_file ON type_rels(file_id);
-CREATE INDEX IF NOT EXISTS idx_type_rels_from ON type_rels(from_fqn);
+CREATE INDEX IF NOT EXISTS idx_edges_file ON edges(file_id);
+CREATE INDEX IF NOT EXISTS idx_edges_from ON edges(from_fqn, kind);
+CREATE INDEX IF NOT EXISTS idx_edges_to   ON edges(to_fqn, kind);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS symbols_fts USING fts5(
 	name, fqn, doc,
@@ -314,10 +317,11 @@ func (w *Writer) ReplaceFile(d FileData) error {
 			return err
 		}
 	}
-	for _, rel := range d.FI.TypeRels {
+	for _, ref := range d.FI.Refs {
 		if _, err := w.exec(
-			`INSERT INTO type_rels (file_id, from_fqn, rel, to_name) VALUES (?, ?, ?, ?)`,
-			fileID, rel.From, string(rel.Rel), rel.To,
+			`INSERT INTO edges (file_id, from_fqn, kind, to_fqn, resolved, line)
+			 VALUES (?, ?, ?, ?, ?, ?)`,
+			fileID, ref.From, string(ref.Kind), ref.To, boolInt(ref.Resolved), ref.Line,
 		); err != nil {
 			return err
 		}
@@ -353,7 +357,7 @@ func (w *Writer) deleteFile(path string) error {
 	for _, q := range []string{
 		`DELETE FROM symbols WHERE file_id = ?`,
 		`DELETE FROM imports WHERE file_id = ?`,
-		`DELETE FROM type_rels WHERE file_id = ?`,
+		`DELETE FROM edges WHERE file_id = ?`,
 		`DELETE FROM files WHERE id = ?`,
 	} {
 		if _, err := w.exec(q, fileID); err != nil {

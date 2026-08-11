@@ -10,6 +10,15 @@ import (
 	"gitlab.stripchat.dev/stripcash/kartograf/internal/core/model"
 )
 
+// ExtractOptions tunes per-file extraction.
+type ExtractOptions struct {
+	// SkipRefs disables reference/call-edge extraction (symbols and
+	// inheritance only). Used for vendor code: its declarations are
+	// needed to resolve project hierarchies, but its internal call
+	// graph is noise.
+	SkipRefs bool
+}
+
 // Language is implemented once per supported language (php, ts, go, ...).
 type Language interface {
 	// ID is the stable language identifier used in symbol IDs ("php").
@@ -20,7 +29,7 @@ type Language interface {
 	// ExtractFile parses src and returns the normalized file index.
 	// path is used only for reporting; implementations must not read
 	// from disk.
-	ExtractFile(path string, src []byte) (*model.FileIndex, error)
+	ExtractFile(path string, src []byte, opts ExtractOptions) (*model.FileIndex, error)
 }
 
 var registry = map[string]Language{} // extension -> adapter

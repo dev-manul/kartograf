@@ -44,7 +44,7 @@ func (a *Adapter) Parse(src []byte) (*tree_sitter.Tree, error) {
 	return tree, nil
 }
 
-func (a *Adapter) ExtractFile(path string, src []byte) (*model.FileIndex, error) {
+func (a *Adapter) ExtractFile(path string, src []byte, opts lang.ExtractOptions) (*model.FileIndex, error) {
 	tree, err := a.Parse(src)
 	if err != nil {
 		return nil, err
@@ -52,11 +52,13 @@ func (a *Adapter) ExtractFile(path string, src []byte) (*model.FileIndex, error)
 	defer tree.Close()
 
 	e := &extractor{
-		src: src,
-		fi:  &model.FileIndex{Path: path, Lang: langID},
+		src:      src,
+		fi:       &model.FileIndex{Path: path, Lang: langID},
+		skipRefs: opts.SkipRefs,
+		refSeen:  map[model.Ref]bool{},
 	}
 	root := tree.RootNode()
 	e.fi.HasErrors = root.HasError()
-	e.walkScope(root, "")
+	e.walkScope(root, newScope(""))
 	return e.fi, nil
 }
