@@ -1,6 +1,13 @@
-# kartograf
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.svg">
+    <img src="assets/logo.svg" width="140" alt="kartograf">
+  </picture>
+</p>
 
-[Русская версия](README.ru.md)
+<h1 align="center">kartograf</h1>
+
+<p align="center">[Русская версия](README.ru.md)</p>
 
 Builds a code map of a project (symbols, references, call graph) and
 serves it to AI agents over MCP. Parsing is tree-sitter based, the

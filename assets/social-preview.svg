@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640">
+  <defs>
+    <linearGradient id="karm" x1="0" y1="150" x2="0" y2="500" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#8266FF"/>
+      <stop offset="0.45" stop-color="#4C6FFF"/>
+      <stop offset="1" stop-color="#2EE59D"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="640" fill="#0D1220"/>
+  <g transform="translate(115 90) scale(0.9)">
+    <polygon fill="url(#karm)" points="192,243 238,281 373,117 327,79"/>
+    <polygon fill="url(#karm)" points="236,247 194,289 344,436 386,394"/>
+    <g stroke="#F8FAFC" stroke-width="18" stroke-linecap="round">
+      <line x1="150" y1="120" x2="215" y2="265"/>
+      <line x1="215" y1="265" x2="158" y2="400"/>
+      <line x1="150" y1="120" x2="158" y2="400"/>
+    </g>
+    <g fill="#0D1220" stroke="#F8FAFC" stroke-width="18">
+      <circle cx="150" cy="120" r="26"/>
+      <circle cx="215" cy="265" r="30"/>
+      <circle cx="158" cy="400" r="24"/>
+    </g>
+  </g>
+  <text x="530" y="320" font-family="Helvetica Neue, Arial, sans-serif" font-size="110" font-weight="700" fill="#F8FAFC">kartograf</text>
+  <text x="533" y="392" font-family="Helvetica Neue, Arial, sans-serif" font-size="32" fill="#8B95A9">Code map &amp; call-graph MCP server for AI agents</text>
+  <text x="533" y="448" font-family="Helvetica Neue, Arial, sans-serif" font-size="27" fill="#5B6478">PHP · Go · TypeScript — tree-sitter + SQLite</text>
+</svg>

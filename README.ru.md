@@ -1,6 +1,13 @@
-# kartograf
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.svg">
+    <img src="assets/logo.svg" width="140" alt="kartograf">
+  </picture>
+</p>
 
-[English version](README.md)
+<h1 align="center">kartograf</h1>
+
+<p align="center">[English version](README.md)</p>
 
 Строит карту кода проекта (символы, ссылки, граф вызовов) и отдаёт её
 AI-агентам через MCP. Парсинг — tree-sitter, ядро языконезависимое;

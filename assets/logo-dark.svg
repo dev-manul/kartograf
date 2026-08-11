@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="karm" x1="0" y1="80" x2="0" y2="440" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#8266FF"/>
+      <stop offset="0.45" stop-color="#4C6FFF"/>
+      <stop offset="1" stop-color="#2EE59D"/>
+    </linearGradient>
+  </defs>
+  <!-- K arms -->
+  <polygon fill="url(#karm)" points="192,243 238,281 373,117 327,79"/>
+  <polygon fill="url(#karm)" points="236,247 194,289 344,436 386,394"/>
+  <!-- graph: three nodes, triangle edges -->
+  <g stroke="#F8FAFC" stroke-width="18" stroke-linecap="round">
+    <line x1="150" y1="120" x2="215" y2="265"/>
+    <line x1="215" y1="265" x2="158" y2="400"/>
+    <line x1="150" y1="120" x2="158" y2="400"/>
+  </g>
+  <g fill="#0D1220" stroke="#F8FAFC" stroke-width="18">
+    <circle cx="150" cy="120" r="26"/>
+    <circle cx="215" cy="265" r="30"/>
+    <circle cx="158" cy="400" r="24"/>
+  </g>
+</svg>
