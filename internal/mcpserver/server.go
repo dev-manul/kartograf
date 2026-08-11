@@ -8,7 +8,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"gitlab.stripchat.dev/stripcash/kartograf/internal/core/query"
+	"github.com/dev-manul/kartograf/internal/core/query"
 )
 
 const defaultLimit = 50

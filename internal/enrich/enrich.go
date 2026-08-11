@@ -16,7 +16,7 @@ import (
 	"strconv"
 	"strings"
 
-	"gitlab.stripchat.dev/stripcash/kartograf/internal/core/store"
+	"github.com/dev-manul/kartograf/internal/core/store"
 )
 
 // Dir is the per-project kartograf directory at the root.

@@ -7,8 +7,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"gitlab.stripchat.dev/stripcash/kartograf/internal/core/store"
-	"gitlab.stripchat.dev/stripcash/kartograf/internal/enrich"
+	"github.com/dev-manul/kartograf/internal/core/store"
+	"github.com/dev-manul/kartograf/internal/enrich"
 )
 
 func newEnrichCmd() *cobra.Command {

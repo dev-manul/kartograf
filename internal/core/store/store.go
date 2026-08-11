@@ -16,7 +16,7 @@ import (
 
 	_ "github.com/mattn/go-sqlite3"
 
-	"gitlab.stripchat.dev/stripcash/kartograf/internal/core/model"
+	"github.com/dev-manul/kartograf/internal/core/model"
 )
 
 // schemaVersion is bumped on any incompatible schema change; a version

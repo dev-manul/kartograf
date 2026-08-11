@@ -20,9 +20,9 @@ import (
 	"github.com/go-git/go-billy/v5/osfs"
 	gitignore "github.com/go-git/go-git/v5/plumbing/format/gitignore"
 
-	"gitlab.stripchat.dev/stripcash/kartograf/internal/core/config"
-	"gitlab.stripchat.dev/stripcash/kartograf/internal/core/lang"
-	"gitlab.stripchat.dev/stripcash/kartograf/internal/core/store"
+	"github.com/dev-manul/kartograf/internal/core/config"
+	"github.com/dev-manul/kartograf/internal/core/lang"
+	"github.com/dev-manul/kartograf/internal/core/store"
 )
 
 type Options struct {

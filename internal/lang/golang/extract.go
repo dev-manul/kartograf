@@ -5,7 +5,7 @@ import (
 
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 
-	"gitlab.stripchat.dev/stripcash/kartograf/internal/core/model"
+	"github.com/dev-manul/kartograf/internal/core/model"
 )
 
 const maxSignatureLen = 200

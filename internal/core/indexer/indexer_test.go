@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"gitlab.stripchat.dev/stripcash/kartograf/internal/core/config"
-	"gitlab.stripchat.dev/stripcash/kartograf/internal/core/store"
-	"gitlab.stripchat.dev/stripcash/kartograf/internal/lang/php"
+	"github.com/dev-manul/kartograf/internal/core/config"
+	"github.com/dev-manul/kartograf/internal/core/store"
+	"github.com/dev-manul/kartograf/internal/lang/php"
 )
 
 func write(t *testing.T, root, rel, content string) {

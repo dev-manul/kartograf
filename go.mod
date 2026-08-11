@@ -1,4 +1,4 @@
-module gitlab.stripchat.dev/stripcash/kartograf
+module github.com/dev-manul/kartograf
 
 go 1.26.5
 

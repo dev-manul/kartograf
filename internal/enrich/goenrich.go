@@ -10,7 +10,7 @@ import (
 
 	"golang.org/x/tools/go/packages"
 
-	"gitlab.stripchat.dev/stripcash/kartograf/internal/core/store"
+	"github.com/dev-manul/kartograf/internal/core/store"
 )
 
 // RunGo type-checks every Go module under root with go/packages and

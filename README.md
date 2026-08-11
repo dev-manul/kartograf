@@ -30,7 +30,34 @@ adapters are implemented.
 - Optional enrichment layer (`kartograf enrich`): full type inference
   on top of the file-local AST heuristics.
 
-## Usage
+## Quick install (let your AI agent do it)
+
+Prebuilt binaries for macOS (Intel/Apple Silicon) and Linux
+(amd64/arm64) are attached to every
+[release](https://github.com/dev-manul/kartograf/releases/latest).
+Paste this prompt into Claude Code (or any agent with shell access)
+inside the project you want indexed:
+
+```text
+Install the kartograf MCP server for this project:
+1. Detect my OS and architecture (uname -s / uname -m) and download the
+   matching asset from
+   https://github.com/dev-manul/kartograf/releases/latest/download/kartograf-<os>-<arch>
+   where <os>-<arch> is one of: darwin-arm64, darwin-amd64, linux-amd64,
+   linux-arm64.
+2. Install it to ~/.local/bin/kartograf (create the directory if
+   needed), chmod +x. On macOS also run:
+   xattr -d com.apple.quarantine ~/.local/bin/kartograf || true
+3. Build the index: ~/.local/bin/kartograf index . — and show me the
+   summary line it prints (files/symbols).
+4. Register the MCP server for this project:
+   claude mcp add kartograf -- ~/.local/bin/kartograf serve "$PWD"
+5. Tell me to restart the session so the kartograf tools appear:
+   search_symbols, get_symbol, find_references, get_callers,
+   get_callees, class_hierarchy, file_outline.
+```
+
+## Building from source
 
 The build requires the `sqlite_fts5` build tag (FTS5 support in
 mattn/go-sqlite3); without it compilation fails on purpose with a

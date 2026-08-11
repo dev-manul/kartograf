@@ -8,9 +8,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"gitlab.stripchat.dev/stripcash/kartograf/internal/lang/golang"
-	"gitlab.stripchat.dev/stripcash/kartograf/internal/lang/php"
-	"gitlab.stripchat.dev/stripcash/kartograf/internal/lang/ts"
+	"github.com/dev-manul/kartograf/internal/lang/golang"
+	"github.com/dev-manul/kartograf/internal/lang/php"
+	"github.com/dev-manul/kartograf/internal/lang/ts"
 )
 
 var version = "dev"

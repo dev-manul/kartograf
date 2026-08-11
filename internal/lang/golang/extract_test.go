@@ -4,8 +4,8 @@ import (
 	"os"
 	"testing"
 
-	"gitlab.stripchat.dev/stripcash/kartograf/internal/core/lang"
-	"gitlab.stripchat.dev/stripcash/kartograf/internal/core/model"
+	"github.com/dev-manul/kartograf/internal/core/lang"
+	"github.com/dev-manul/kartograf/internal/core/model"
 )
 
 // The fixture is extracted as if it lived at src/go-api/services/svc

@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.stripchat.dev/stripcash/kartograf/internal/core/lang"
-	"gitlab.stripchat.dev/stripcash/kartograf/internal/core/model"
+	"github.com/dev-manul/kartograf/internal/core/lang"
+	"github.com/dev-manul/kartograf/internal/core/model"
 )
 
 func extractFixture(t *testing.T, name string) *model.FileIndex {

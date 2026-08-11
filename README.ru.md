@@ -29,7 +29,34 @@ AI-агентам через MCP. Парсинг — tree-sitter, ядро яз�
 - Опциональный слой точности (`kartograf enrich`): полный
   тайп-инференс поверх file-local AST-эвристик.
 
-## Использование
+## Быстрая установка (руками AI-агента)
+
+Готовые бинари под macOS (Intel/Apple Silicon) и Linux (amd64/arm64)
+прикреплены к каждому
+[релизу](https://github.com/dev-manul/kartograf/releases/latest).
+Вставьте этот промпт в Claude Code (или любого агента с доступом к
+шеллу) внутри проекта, который хотите проиндексировать:
+
+```text
+Install the kartograf MCP server for this project:
+1. Detect my OS and architecture (uname -s / uname -m) and download the
+   matching asset from
+   https://github.com/dev-manul/kartograf/releases/latest/download/kartograf-<os>-<arch>
+   where <os>-<arch> is one of: darwin-arm64, darwin-amd64, linux-amd64,
+   linux-arm64.
+2. Install it to ~/.local/bin/kartograf (create the directory if
+   needed), chmod +x. On macOS also run:
+   xattr -d com.apple.quarantine ~/.local/bin/kartograf || true
+3. Build the index: ~/.local/bin/kartograf index . — and show me the
+   summary line it prints (files/symbols).
+4. Register the MCP server for this project:
+   claude mcp add kartograf -- ~/.local/bin/kartograf serve "$PWD"
+5. Tell me to restart the session so the kartograf tools appear:
+   search_symbols, get_symbol, find_references, get_callers,
+   get_callees, class_hierarchy, file_outline.
+```
+
+## Сборка из исходников
 
 Сборка требует build-тег `sqlite_fts5` (FTS5 в mattn/go-sqlite3);
 без тега компиляция намеренно падает с понятной ошибкой. Проще через

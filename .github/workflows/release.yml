@@ -1,0 +1,62 @@
+# Build & release on every push to master.
+# cgo (tree-sitter, sqlite) rules out easy cross-compilation, so each
+# target builds on its native runner.
+name: release
+
+on:
+  push:
+    branches: [master]
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: make check
+
+  build:
+    needs: test
+    strategy:
+      matrix:
+        include:
+          - os: macos-14 # Apple Silicon
+            artifact: kartograf-darwin-arm64
+          - os: macos-13 # Intel
+            artifact: kartograf-darwin-amd64
+          - os: ubuntu-latest
+            artifact: kartograf-linux-amd64
+          - os: ubuntu-24.04-arm
+            artifact: kartograf-linux-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: make build VERSION=v0.1.${{ github.run_number }}
+      - run: mv bin/kartograf ${{ matrix.artifact }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v0.1.${{ github.run_number }}
+          name: v0.1.${{ github.run_number }}
+          files: kartograf-*
+          fail_on_unmatched_files: true
+          generate_release_notes: true

@@ -9,12 +9,12 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
 
-	"gitlab.stripchat.dev/stripcash/kartograf/internal/core/config"
-	"gitlab.stripchat.dev/stripcash/kartograf/internal/core/indexer"
-	"gitlab.stripchat.dev/stripcash/kartograf/internal/core/query"
-	"gitlab.stripchat.dev/stripcash/kartograf/internal/core/store"
-	"gitlab.stripchat.dev/stripcash/kartograf/internal/enrich"
-	"gitlab.stripchat.dev/stripcash/kartograf/internal/mcpserver"
+	"github.com/dev-manul/kartograf/internal/core/config"
+	"github.com/dev-manul/kartograf/internal/core/indexer"
+	"github.com/dev-manul/kartograf/internal/core/query"
+	"github.com/dev-manul/kartograf/internal/core/store"
+	"github.com/dev-manul/kartograf/internal/enrich"
+	"github.com/dev-manul/kartograf/internal/mcpserver"
 )
 
 func newServeCmd() *cobra.Command {

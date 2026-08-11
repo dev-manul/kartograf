@@ -86,11 +86,12 @@ that is intentional, add `-tags sqlite_fts5` or use make.
 
 ## Testing against real projects
 
-Handy local targets (large PHP monolith and a Go service):
+Index a real project of each language and eyeball the numbers (a large
+PHP monolith with vendor: ~79k files, cold ~19s; typical Go/TS repos:
+under 2s):
 
 ```sh
-kartograf index /Users/manul/projects/stripcash/api      # ~79k files, cold ~19s
-kartograf index /Users/manul/projects/stripcash/go-api   # ~336 files
+kartograf index /path/to/some/project
 ```
 
 To smoke-test the MCP server without a client, pipe JSON-RPC to

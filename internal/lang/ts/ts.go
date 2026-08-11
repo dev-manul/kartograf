@@ -23,8 +23,8 @@ import (
 	tree_sitter_javascript "github.com/tree-sitter/tree-sitter-javascript/bindings/go"
 	tree_sitter_typescript "github.com/tree-sitter/tree-sitter-typescript/bindings/go"
 
-	"gitlab.stripchat.dev/stripcash/kartograf/internal/core/lang"
-	"gitlab.stripchat.dev/stripcash/kartograf/internal/core/model"
+	"github.com/dev-manul/kartograf/internal/core/lang"
+	"github.com/dev-manul/kartograf/internal/core/model"
 )
 
 const langID = "ts"

@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"gitlab.stripchat.dev/stripcash/kartograf/internal/core/store"
+	"github.com/dev-manul/kartograf/internal/core/store"
 )
 
 type Engine struct {

@@ -8,7 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"gitlab.stripchat.dev/stripcash/kartograf/internal/core/store"
+	"github.com/dev-manul/kartograf/internal/core/store"
 )
 
 // phpstanRule is the PHPStan rule that exports resolved call edges.

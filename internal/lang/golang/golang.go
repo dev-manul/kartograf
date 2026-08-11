@@ -15,8 +15,8 @@ import (
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 	tree_sitter_go "github.com/tree-sitter/tree-sitter-go/bindings/go"
 
-	"gitlab.stripchat.dev/stripcash/kartograf/internal/core/lang"
-	"gitlab.stripchat.dev/stripcash/kartograf/internal/core/model"
+	"github.com/dev-manul/kartograf/internal/core/lang"
+	"github.com/dev-manul/kartograf/internal/core/model"
 )
 
 const langID = "go"
