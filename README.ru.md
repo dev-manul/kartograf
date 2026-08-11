@@ -34,26 +34,15 @@ AI-агентам через MCP. Парсинг — tree-sitter, ядро яз�
 Готовые бинари под macOS (Intel/Apple Silicon) и Linux (amd64/arm64)
 прикреплены к каждому
 [релизу](https://github.com/dev-manul/kartograf/releases/latest).
-Вставьте этот промпт в Claude Code (или любого агента с доступом к
-шеллу) внутри проекта, который хотите проиндексировать:
+Пошаговые инструкции для AI-агентов лежат в
+[docs/install-prompt.md](docs/install-prompt.md) — вставьте в Claude
+Code (или любого агента с доступом к шеллу) внутри проекта, который
+хотите проиндексировать:
 
 ```text
-Install the kartograf MCP server for this project:
-1. Detect my OS and architecture (uname -s / uname -m) and download the
-   matching asset from
-   https://github.com/dev-manul/kartograf/releases/latest/download/kartograf-<os>-<arch>
-   where <os>-<arch> is one of: darwin-arm64, darwin-amd64, linux-amd64,
-   linux-arm64.
-2. Install it to ~/.local/bin/kartograf (create the directory if
-   needed), chmod +x. On macOS also run:
-   xattr -d com.apple.quarantine ~/.local/bin/kartograf || true
-3. Build the index: ~/.local/bin/kartograf index . — and show me the
-   summary line it prints (files/symbols).
-4. Register the MCP server for this project:
-   claude mcp add kartograf -- ~/.local/bin/kartograf serve "$PWD"
-5. Tell me to restart the session so the kartograf tools appear:
-   search_symbols, get_symbol, find_references, get_callers,
-   get_callees, class_hierarchy, file_outline.
+Fetch https://raw.githubusercontent.com/dev-manul/kartograf/master/docs/install-prompt.md
+and follow the instructions to install the kartograf MCP server for
+this project.
 ```
 
 ## Сборка из исходников

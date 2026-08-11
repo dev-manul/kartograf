@@ -1,0 +1,62 @@
+# kartograf — install instructions for AI agents
+
+You are an AI coding agent with shell access. Install and register the
+kartograf MCP server for the project in the current working directory
+by following these steps.
+
+1. Detect the OS and architecture (`uname -s`, `uname -m`) and pick the
+   matching release asset name:
+   - macOS + arm64 → `kartograf-darwin-arm64`
+   - macOS + x86_64 → `kartograf-darwin-amd64`
+   - Linux + x86_64 → `kartograf-linux-amd64`
+   - Linux + aarch64 → `kartograf-linux-arm64`
+
+2. Download it from the latest release and install:
+
+   ```sh
+   mkdir -p "$HOME/.local/bin"
+   curl -fsSL -o "$HOME/.local/bin/kartograf" \
+     "https://github.com/dev-manul/kartograf/releases/latest/download/<asset-name>"
+   chmod +x "$HOME/.local/bin/kartograf"
+   # macOS only: clear the quarantine attribute
+   xattr -d com.apple.quarantine "$HOME/.local/bin/kartograf" 2>/dev/null || true
+   ```
+
+3. Verify it runs: `"$HOME/.local/bin/kartograf" --version`.
+
+4. Build the index for the current project and report the summary line
+   (file/symbol counts) to the user:
+
+   ```sh
+   "$HOME/.local/bin/kartograf" index .
+   ```
+
+5. Register the MCP server. In Claude Code (use the absolute binary
+   path — `~` is not expanded when the server is spawned):
+
+   ```sh
+   claude mcp add kartograf -- "$HOME/.local/bin/kartograf" serve "$PWD"
+   ```
+
+   For other MCP clients, add a stdio server to their config with
+   absolute paths:
+
+   ```json
+   {"mcpServers": {"kartograf": {
+     "command": "/home/user/.local/bin/kartograf",
+     "args": ["serve", "/abs/path/to/project"]
+   }}}
+   ```
+
+6. Tell the user to restart the session so the tools appear, and list
+   what they will get: `search_symbols`, `get_symbol`,
+   `find_references`, `get_callers`, `get_callees`, `class_hierarchy`,
+   `file_outline`.
+
+Notes:
+
+- The index lives in the user cache dir, not in the repo; `serve`
+  refreshes it automatically on start.
+- Optional precision layer for Go and PHP projects:
+  `kartograf enrich go .` / `kartograf enrich php .` (see the README).
+- Supported languages: PHP, Go, TypeScript/JavaScript.
