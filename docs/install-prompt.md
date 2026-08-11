@@ -65,8 +65,9 @@ Notes:
 
 - The index lives in the user cache dir, not in the repo; `serve`
   refreshes it automatically on start.
-- Optional precision layer for Go and PHP projects:
-  `kartograf enrich go .` / `kartograf enrich php .` (see the README).
+- Precision layer: `kartograf enrich go .` / `kartograf enrich php .`
+  (see the README). For PHP projects run it — without it
+  `get_callers` resolves almost nothing through interfaces/DI.
 - Supported languages: PHP, Go, TypeScript/JavaScript.
 - Updating later: `kartograf self-update` (the serve log also prints a
   hint when a newer release exists).

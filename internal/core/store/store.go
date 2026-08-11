@@ -88,12 +88,17 @@ CREATE INDEX IF NOT EXISTS idx_ext_edges_from ON ext_edges(from_fqn, kind);
 CREATE INDEX IF NOT EXISTS idx_ext_edges_to   ON ext_edges(to_fqn, kind);
 
 -- all_edges is the read-side union of AST edges and enrichment edges.
-CREATE VIEW IF NOT EXISTS all_edges AS
+-- Dropped and recreated on every open so definition changes reach
+-- existing databases without a schema-version rebuild.
+DROP VIEW IF EXISTS all_edges;
+CREATE VIEW all_edges AS
 	SELECT e.from_fqn AS from_fqn, e.kind AS kind, e.to_fqn AS to_fqn,
-		e.resolved AS resolved, f.path AS file, e.line AS line
+		e.resolved AS resolved, f.path AS file, e.line AS line,
+		'ast' AS source
 	FROM edges e JOIN files f ON f.id = e.file_id
 	UNION ALL
-	SELECT x.from_fqn, x.kind, x.to_fqn, 1 AS resolved, x.file, x.line
+	SELECT x.from_fqn, x.kind, x.to_fqn, 1 AS resolved, x.file, x.line,
+		x.source AS source
 	FROM ext_edges x;
 
 CREATE VIRTUAL TABLE IF NOT EXISTS symbols_fts USING fts5(

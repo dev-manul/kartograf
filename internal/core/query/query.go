@@ -217,7 +217,8 @@ type EdgeHit struct {
 	To       string `json:"to"`
 	File     string `json:"file"`
 	Line     int    `json:"line"`
-	Resolved bool   `json:"resolved"` // false = heuristic match
+	Resolved bool   `json:"resolved"`         // false = heuristic match
+	Source   string `json:"source,omitempty"` // "ast" | "phpstan" | "go-types" | ...
 }
 
 func scanEdges(rows *sql.Rows) ([]EdgeHit, error) {
@@ -226,7 +227,7 @@ func scanEdges(rows *sql.Rows) ([]EdgeHit, error) {
 	for rows.Next() {
 		var h EdgeHit
 		var resolved int
-		if err := rows.Scan(&h.From, &h.Kind, &h.To, &h.File, &h.Line, &resolved); err != nil {
+		if err := rows.Scan(&h.From, &h.Kind, &h.To, &h.File, &h.Line, &resolved, &h.Source); err != nil {
 			return nil, err
 		}
 		h.Resolved = resolved == 1
@@ -237,7 +238,7 @@ func scanEdges(rows *sql.Rows) ([]EdgeHit, error) {
 
 // all_edges is the union view of AST edges and enrichment (PHPStan /
 // go-types) edges; enrichment rows are resolved=1 by definition.
-const edgeCols = `e.from_fqn, e.kind, e.to_fqn, e.file, e.line, e.resolved
+const edgeCols = `e.from_fqn, e.kind, e.to_fqn, e.file, e.line, e.resolved, e.source
 	FROM all_edges e`
 
 // dedupeEdges collapses duplicates between the AST layer and

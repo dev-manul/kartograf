@@ -154,7 +154,8 @@ func register(s *mcp.Server, q *query.Engine) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "find_references",
 		Description: "Find all places referencing a symbol (calls, instantiations, type hints, instanceof, " +
-			"constant access, inheritance). resolved=false rows are heuristic matches.",
+			"constant access, inheritance). Args: fqn (or bare name), limit. Each edge carries " +
+			"source (ast | phpstan | go-types) and resolved (false = heuristic match).",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in fqnIn) (*mcp.CallToolResult, edgesOut, error) {
 		hits, err := q.References(resolveFQN(q, in.FQN), limit(in.Limit))
 		return nil, edgesOut{Results: nonNil(hits)}, err
@@ -162,8 +163,9 @@ func register(s *mcp.Server, q *query.Engine) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "get_callers",
-		Description: "Who calls this method/function? For methods the class hierarchy is considered: calls via " +
-			"a parent interface/class reference are included and marked resolved=false.",
+		Description: "Who calls this method/function? Args: fqn (or bare name), limit. For methods the class " +
+			"hierarchy is considered: calls via a parent interface/class reference are included and marked " +
+			"resolved=false. Edges carry source (ast | phpstan | go-types).",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in fqnIn) (*mcp.CallToolResult, edgesOut, error) {
 		hits, err := q.Callers(resolveFQN(q, in.FQN), limit(in.Limit))
 		return nil, edgesOut{Results: nonNil(hits)}, err

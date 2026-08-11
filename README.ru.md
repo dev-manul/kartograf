@@ -96,6 +96,22 @@ claude mcp add kartograf -- kartograf serve /path/to/project
 Рёбра с `resolved=false` — эвристика (вызов через `parent::`,
 выведенный тип получателя, глобальный фолбэк функций); точные рёбра
 резолвятся по правилам языка из карты импортов и неймспейса файла.
+На каждом ребре есть `source`: `ast` (file-local извлечение),
+`phpstan` или `go-types` (слой точности).
+
+Что работает без слоя точности:
+
+| Тулза | Только AST | с `enrich` |
+|------|----------|---------------|
+| `search_symbols`, `file_outline`, `get_symbol` | ✅ | ✅ |
+| `class_hierarchy` | ✅ PHP/TS; в Go нет `implements` | ✅ |
+| `find_references` | ⚠️ частично для динамики | ✅ |
+| `get_callees` | ⚠️ мало resolved в нетипизированном PHP | ✅ |
+| `get_callers` (PHP интерфейсы/DI) | ❌ почти всё эвристика | ✅ |
+
+Для PHP-проектов `kartograf enrich php` — фактически обязателен для
+графа вызовов, а не опциональная фича: `serve` предупреждает, если
+его нет.
 
 ## Слой точности
 

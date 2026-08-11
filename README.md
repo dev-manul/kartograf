@@ -97,7 +97,22 @@ built once after the load), warm run ~1.5s.
 Edges with `resolved=false` are heuristic (calls via `parent::`,
 inferred receiver types, global function fallback); exact edges follow
 the language's name-resolution rules using the file's import map and
-namespace.
+namespace. Every edge carries `source`: `ast` (file-local extraction),
+`phpstan` or `go-types` (enrichment layer).
+
+What works without the enrichment layer:
+
+| Tool | AST only | with `enrich` |
+|------|----------|---------------|
+| `search_symbols`, `file_outline`, `get_symbol` | ✅ | ✅ |
+| `class_hierarchy` | ✅ PHP/TS; Go lacks `implements` | ✅ |
+| `find_references` | ⚠️ partial for dynamic calls | ✅ |
+| `get_callees` | ⚠️ low resolved % in untyped PHP | ✅ |
+| `get_callers` (PHP interface/DI call sites) | ❌ mostly heuristic | ✅ |
+
+For PHP projects `kartograf enrich php` is effectively required for
+call-graph queries, not an optional nicety — `serve` warns when it is
+missing.
 
 ## Enrichment layer
 
