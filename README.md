@@ -61,6 +61,7 @@ kartograf index --rebuild                   # from scratch
 kartograf serve [root]                      # MCP server on stdio (updates the index on start)
 kartograf outline path/to/File.php          # symbols of one file
 kartograf outline --json path/to/File.php   # full FileIndex as JSON
+kartograf self-update                       # update to the latest release
 ```
 
 Registering in Claude Code:

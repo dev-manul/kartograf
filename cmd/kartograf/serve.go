@@ -15,6 +15,7 @@ import (
 	"github.com/dev-manul/kartograf/internal/core/store"
 	"github.com/dev-manul/kartograf/internal/enrich"
 	"github.com/dev-manul/kartograf/internal/mcpserver"
+	"github.com/dev-manul/kartograf/internal/selfupdate"
 )
 
 func newServeCmd() *cobra.Command {
@@ -70,6 +71,14 @@ All progress output goes to stderr; stdout carries the MCP protocol.`,
 			}); err != nil {
 				fmt.Fprintf(os.Stderr, "kartograf: enrich auto-import: %v\n", err)
 			}
+
+			// Fire-and-forget daily update check; the hint lands in
+			// the MCP server's stderr log.
+			go func() {
+				if notice := selfupdate.Notice(version); notice != "" {
+					fmt.Fprintln(os.Stderr, notice)
+				}
+			}()
 
 			srv := mcpserver.New(query.New(s, absRoot), version)
 			fmt.Fprintln(os.Stderr, "kartograf: serving MCP on stdio")

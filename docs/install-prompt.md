@@ -60,3 +60,5 @@ Notes:
 - Optional precision layer for Go and PHP projects:
   `kartograf enrich go .` / `kartograf enrich php .` (see the README).
 - Supported languages: PHP, Go, TypeScript/JavaScript.
+- Updating later: `kartograf self-update` (the serve log also prints a
+  hint when a newer release exists).

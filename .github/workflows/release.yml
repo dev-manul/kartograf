@@ -59,10 +59,13 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           merge-multiple: true
+      - run: sha256sum kartograf-* > SHA256SUMS
       - uses: softprops/action-gh-release@v3
         with:
           tag_name: v0.1.${{ github.run_number }}
           name: v0.1.${{ github.run_number }}
-          files: kartograf-*
+          files: |
+            kartograf-*
+            SHA256SUMS
           fail_on_unmatched_files: true
           generate_release_notes: true
