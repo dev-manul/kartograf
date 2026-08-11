@@ -17,6 +17,10 @@ type ExtractOptions struct {
 	// needed to resolve project hierarchies, but its internal call
 	// graph is noise.
 	SkipRefs bool
+	// Modules maps root-relative directories to module/package names
+	// (Go: go.mod roots -> module path; later TS: package.json roots).
+	// Adapters use it to build import-path based FQNs.
+	Modules map[string]string
 }
 
 // Language is implemented once per supported language (php, ts, go, ...).

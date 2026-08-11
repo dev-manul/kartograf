@@ -72,7 +72,7 @@ func Run(opts Options) (*Stats, error) {
 		return nil, err
 	}
 
-	entries, err := collect(opts.Root, opts.Cfg)
+	entries, modules, err := collect(opts.Root, opts.Cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +88,7 @@ func Run(opts Options) (*Stats, error) {
 		go func() {
 			defer wg.Done()
 			for e := range jobs {
-				results <- process(opts, known, e)
+				results <- process(opts, known, modules, e)
 			}
 		}()
 	}
@@ -155,7 +155,7 @@ func Run(opts Options) (*Stats, error) {
 	return stats, nil
 }
 
-func process(opts Options, known map[string]store.FileMeta, e entry) result {
+func process(opts Options, known map[string]store.FileMeta, modules map[string]string, e entry) result {
 	prev, ok := known[e.rel]
 	// Stat fast path: same size and mtime as last time — assume
 	// unchanged without reading the file (same trade-off git makes).
@@ -179,7 +179,7 @@ func process(opts Options, known map[string]store.FileMeta, e entry) result {
 	}
 	// Vendor code is indexed shallow: declarations and hierarchy only,
 	// its internal call graph is noise.
-	fi, err := adapter.ExtractFile(e.rel, data, lang.ExtractOptions{SkipRefs: e.vendor})
+	fi, err := adapter.ExtractFile(e.rel, data, lang.ExtractOptions{SkipRefs: e.vendor, Modules: modules})
 	if err != nil {
 		return result{entry: e, err: err}
 	}
@@ -193,11 +193,12 @@ func process(opts Options, known map[string]store.FileMeta, e entry) result {
 	}}
 }
 
-// collect walks the project and returns candidate files. Non-vendor
-// paths respect .gitignore (all nested files) plus config excludes;
-// vendor directories bypass gitignore (they are usually ignored) and
-// are included or skipped wholesale per config.
-func collect(root string, cfg config.Config) ([]entry, error) {
+// collect walks the project and returns candidate files plus the
+// module map (dir -> module name from go.mod files met on the way).
+// Non-vendor paths respect .gitignore (all nested files) plus config
+// excludes; vendor directories bypass gitignore (they are usually
+// ignored) and are included or skipped wholesale per config.
+func collect(root string, cfg config.Config) ([]entry, map[string]string, error) {
 	matcher := buildMatcher(root, cfg)
 
 	roots := cfg.Include
@@ -206,6 +207,7 @@ func collect(root string, cfg config.Config) ([]entry, error) {
 	}
 
 	var entries []entry
+	modules := map[string]string{}
 	for _, r := range roots {
 		base := filepath.Join(root, filepath.FromSlash(r))
 		err := filepath.WalkDir(base, func(path string, d fs.DirEntry, err error) error {
@@ -236,6 +238,12 @@ func collect(root string, cfg config.Config) ([]entry, error) {
 				}
 				return nil
 			}
+			if d.Name() == "go.mod" && !vendor {
+				if mod := readModulePath(path); mod != "" {
+					modules[filepath.ToSlash(filepath.Dir(rel))] = mod
+				}
+				return nil
+			}
 			if lang.ForPath(rel) == nil {
 				return nil
 			}
@@ -255,10 +263,25 @@ func collect(root string, cfg config.Config) ([]entry, error) {
 			return nil
 		})
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
-	return entries, nil
+	return entries, modules, nil
+}
+
+// readModulePath extracts the module path from a go.mod file.
+func readModulePath(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if rest, ok := strings.CutPrefix(line, "module "); ok {
+			return strings.TrimSpace(rest)
+		}
+	}
+	return ""
 }
 
 // buildMatcher combines the project's .gitignore hierarchy with extra

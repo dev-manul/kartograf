@@ -20,7 +20,7 @@ import (
 
 // schemaVersion is bumped on any incompatible schema change; a version
 // mismatch drops and recreates the database (it is cheap to rebuild).
-const schemaVersion = 3
+const schemaVersion = 4
 
 const schema = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -53,7 +53,8 @@ CREATE TABLE IF NOT EXISTS symbols (
 	end_line   INTEGER NOT NULL,
 	end_col    INTEGER NOT NULL,
 	signature  TEXT NOT NULL DEFAULT '',
-	doc        TEXT NOT NULL DEFAULT ''
+	doc        TEXT NOT NULL DEFAULT '',
+	words      TEXT NOT NULL DEFAULT '' -- camelCase-split name for FTS
 );
 CREATE INDEX IF NOT EXISTS idx_symbols_file      ON symbols(file_id);
 CREATE INDEX IF NOT EXISTS idx_symbols_fqn       ON symbols(fqn);
@@ -81,16 +82,16 @@ CREATE INDEX IF NOT EXISTS idx_edges_from ON edges(from_fqn, kind);
 CREATE INDEX IF NOT EXISTS idx_edges_to   ON edges(to_fqn, kind);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS symbols_fts USING fts5(
-	name, fqn, doc,
+	name, fqn, doc, words,
 	content='symbols', content_rowid='rowid'
 );
 CREATE TRIGGER IF NOT EXISTS symbols_ai AFTER INSERT ON symbols BEGIN
-	INSERT INTO symbols_fts(rowid, name, fqn, doc)
-	VALUES (new.rowid, new.name, new.fqn, new.doc);
+	INSERT INTO symbols_fts(rowid, name, fqn, doc, words)
+	VALUES (new.rowid, new.name, new.fqn, new.doc, new.words);
 END;
 CREATE TRIGGER IF NOT EXISTS symbols_ad AFTER DELETE ON symbols BEGIN
-	INSERT INTO symbols_fts(symbols_fts, rowid, name, fqn, doc)
-	VALUES ('delete', old.rowid, old.name, old.fqn, old.doc);
+	INSERT INTO symbols_fts(symbols_fts, rowid, name, fqn, doc, words)
+	VALUES ('delete', old.rowid, old.name, old.fqn, old.doc, old.words);
 END;
 `
 
@@ -301,11 +302,11 @@ func (w *Writer) ReplaceFile(d FileData) error {
 	for _, sym := range d.FI.Symbols {
 		if _, err := w.exec(
 			`INSERT INTO symbols (file_id, sym_id, lang, kind, name, fqn, container,
-				start_line, start_col, end_line, end_col, signature, doc)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				start_line, start_col, end_line, end_col, signature, doc, words)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			fileID, sym.ID, sym.Lang, string(sym.Kind), sym.Name, sym.FQN, sym.Container,
 			sym.Range.StartLine, sym.Range.StartCol, sym.Range.EndLine, sym.Range.EndCol,
-			sym.Signature, sym.Doc,
+			sym.Signature, sym.Doc, SplitWords(sym.Name),
 		); err != nil {
 			return err
 		}
@@ -373,4 +374,37 @@ func boolInt(b bool) int {
 		return 1
 	}
 	return 0
+}
+
+// SplitWords breaks an identifier into lowercase words for full-text
+// search: "BannerHTTPRepository_v2" -> "banner http repository v2".
+func SplitWords(name string) string {
+	var out []rune
+	runes := []rune(name)
+	for i, r := range runes {
+		switch {
+		case r == '_' || r == '-':
+			r = ' '
+		case i > 0 && isUpper(r):
+			prev := runes[i-1]
+			nextLower := i+1 < len(runes) && isLower(runes[i+1])
+			if isLower(prev) || isDigit(prev) || (isUpper(prev) && nextLower) {
+				out = append(out, ' ')
+			}
+		case i > 0 && isDigit(r) && !isDigit(runes[i-1]):
+			out = append(out, ' ')
+		}
+		out = append(out, toLower(r))
+	}
+	return string(out)
+}
+
+func isUpper(r rune) bool { return r >= 'A' && r <= 'Z' }
+func isLower(r rune) bool { return r >= 'a' && r <= 'z' }
+func isDigit(r rune) bool { return r >= '0' && r <= '9' }
+func toLower(r rune) rune {
+	if isUpper(r) {
+		return r + ('a' - 'A')
+	}
+	return r
 }

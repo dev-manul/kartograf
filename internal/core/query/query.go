@@ -122,11 +122,13 @@ func (e *Engine) GetSymbol(fqn string) ([]SymbolHit, error) {
 	}
 	// Suffix fallback ("UserService", "UserService::run()"): find by
 	// the short symbol name via its index, then narrow to FQNs ending
-	// with the requested path — avoids a full LIKE scan.
+	// with the requested path — avoids a full LIKE scan. Separator
+	// before the suffix is language-specific (PHP "\", Go "/" or ".").
+	esc := escapeLike(fqn)
 	rows, err = e.s.DB().Query(`SELECT `+symbolCols+`
-		WHERE s.name = ? AND s.fqn LIKE ? ESCAPE '#'
+		WHERE s.name = ? AND (s.fqn LIKE ? ESCAPE '#' OR s.fqn LIKE ? ESCAPE '#' OR s.fqn LIKE ? ESCAPE '#')
 		ORDER BY f.vendor ASC LIMIT 20`,
-		shortName(fqn), "%\\"+escapeLike(fqn))
+		shortName(fqn), "%\\"+esc, "%."+esc, "%/"+esc)
 	if err != nil {
 		return nil, err
 	}
@@ -134,12 +136,10 @@ func (e *Engine) GetSymbol(fqn string) ([]SymbolHit, error) {
 }
 
 // shortName extracts the bare symbol name from an FQN-ish string:
-// "A\B::bar()" -> "bar", "A\B::$x" -> "x", "A\B" -> "B".
+// "A\B::bar()" -> "bar", "a/b.C.D()" -> "D", "A\B::$x" -> "x".
 func shortName(fqn string) string {
 	s := strings.TrimSuffix(fqn, "()")
-	if i := strings.LastIndex(s, "::"); i >= 0 {
-		s = s[i+2:]
-	} else if i := strings.LastIndex(s, "\\"); i >= 0 {
+	if i := strings.LastIndexAny(s, "\\./:"); i >= 0 {
 		s = s[i+1:]
 	}
 	return strings.TrimPrefix(s, "$")

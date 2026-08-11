@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"gitlab.stripchat.dev/stripcash/kartograf/internal/lang/golang"
 	"gitlab.stripchat.dev/stripcash/kartograf/internal/lang/php"
 )
 
@@ -15,6 +16,7 @@ var version = "dev"
 
 func main() {
 	php.Register()
+	golang.Register()
 
 	root := &cobra.Command{
 		Use:           "kartograf",
