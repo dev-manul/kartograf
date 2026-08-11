@@ -55,9 +55,10 @@ CREATE TABLE IF NOT EXISTS symbols (
 	signature  TEXT NOT NULL DEFAULT '',
 	doc        TEXT NOT NULL DEFAULT ''
 );
-CREATE INDEX IF NOT EXISTS idx_symbols_file ON symbols(file_id);
-CREATE INDEX IF NOT EXISTS idx_symbols_fqn  ON symbols(fqn);
-CREATE INDEX IF NOT EXISTS idx_symbols_name ON symbols(name);
+CREATE INDEX IF NOT EXISTS idx_symbols_file      ON symbols(file_id);
+CREATE INDEX IF NOT EXISTS idx_symbols_fqn       ON symbols(fqn);
+CREATE INDEX IF NOT EXISTS idx_symbols_name      ON symbols(name);
+CREATE INDEX IF NOT EXISTS idx_symbols_container ON symbols(container);
 
 CREATE TABLE IF NOT EXISTS imports (
 	file_id INTEGER NOT NULL,

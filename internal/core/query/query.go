@@ -94,10 +94,14 @@ func (e *Engine) SearchSymbols(q, kind string, limit int) ([]SymbolHit, error) {
 		args = append(args, kind)
 	}
 	args = append(args, limit)
+	// Ranking: project code first, then tests, then vendor; FTS rank
+	// within each group.
 	rows, err := e.s.DB().Query(`SELECT `+symbolCols+`
 		JOIN symbols_fts ON symbols_fts.rowid = s.rowid
 		WHERE symbols_fts MATCH ?`+kindFilter+`
-		ORDER BY f.vendor ASC, rank LIMIT ?`, args...)
+		ORDER BY f.vendor ASC,
+			(f.path LIKE 'tests/%' OR f.path LIKE '%/tests/%' OR f.path LIKE '%/Tests/%') ASC,
+			rank LIMIT ?`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -116,14 +120,29 @@ func (e *Engine) GetSymbol(fqn string) ([]SymbolHit, error) {
 	if err != nil || len(hits) > 0 {
 		return hits, err
 	}
-	// Suffix fallback: match by trailing path segment.
+	// Suffix fallback ("UserService", "UserService::run()"): find by
+	// the short symbol name via its index, then narrow to FQNs ending
+	// with the requested path — avoids a full LIKE scan.
 	rows, err = e.s.DB().Query(`SELECT `+symbolCols+`
-		WHERE s.fqn LIKE ? ESCAPE '#' ORDER BY f.vendor ASC LIMIT 20`,
-		"%\\"+escapeLike(fqn))
+		WHERE s.name = ? AND s.fqn LIKE ? ESCAPE '#'
+		ORDER BY f.vendor ASC LIMIT 20`,
+		shortName(fqn), "%\\"+escapeLike(fqn))
 	if err != nil {
 		return nil, err
 	}
 	return scanHits(rows)
+}
+
+// shortName extracts the bare symbol name from an FQN-ish string:
+// "A\B::bar()" -> "bar", "A\B::$x" -> "x", "A\B" -> "B".
+func shortName(fqn string) string {
+	s := strings.TrimSuffix(fqn, "()")
+	if i := strings.LastIndex(s, "::"); i >= 0 {
+		s = s[i+2:]
+	} else if i := strings.LastIndex(s, "\\"); i >= 0 {
+		s = s[i+1:]
+	}
+	return strings.TrimPrefix(s, "$")
 }
 
 func escapeLike(s string) string {
@@ -221,20 +240,27 @@ func (e *Engine) Callers(fqn string, limit int) ([]EdgeHit, error) {
 		}
 		return scanEdges(rows)
 	}
+	// family = the class itself + its ancestors + its descendants.
+	// Deliberately NOT descendants-of-ancestors: siblings sharing a
+	// base class don't receive each other's calls.
 	rows, err := e.s.DB().Query(`
-		WITH RECURSIVE family(fqn) AS (
+		WITH RECURSIVE up(fqn) AS (
 			SELECT ?
 			UNION
-			SELECT e2.from_fqn FROM edges e2 JOIN family ON e2.to_fqn = family.fqn
+			SELECT e2.to_fqn FROM edges e2 JOIN up ON e2.from_fqn = up.fqn
 				AND e2.kind IN ('extends', 'implements', 'uses_trait')
+		), down(fqn) AS (
+			SELECT ?
 			UNION
-			SELECT e3.to_fqn FROM edges e3 JOIN family ON e3.from_fqn = family.fqn
+			SELECT e3.from_fqn FROM edges e3 JOIN down ON e3.to_fqn = down.fqn
 				AND e3.kind IN ('extends', 'implements', 'uses_trait')
+		), family(fqn) AS (
+			SELECT fqn FROM up UNION SELECT fqn FROM down
 		)
 		SELECT `+edgeCols+`
 		WHERE e.kind = 'calls' AND e.to_fqn IN (SELECT fqn || '::' || ? FROM family)
 		ORDER BY (e.to_fqn = ?) DESC, e.resolved DESC, f.path, e.line LIMIT ?`,
-		class, member, fqn, limit)
+		class, class, member, fqn, limit)
 	if err != nil {
 		return nil, err
 	}
