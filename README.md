@@ -136,6 +136,44 @@ the file retires its edges.
   `kartograf enrich import <file> --source phpstan` (container paths
   are mapped automatically).
 
+### Enrich in Docker / CI
+
+If PHP only runs in a container, generate the config locally, run
+PHPStan where PHP lives, and import the result:
+
+```sh
+kartograf enrich php --skip-run /path/to/project   # scaffold .kartograf/phpstan/ only
+docker compose exec app php vendor/bin/phpstan analyse \
+  -c .kartograf/phpstan/kartograf.neon \
+  --autoload-file .kartograf/phpstan/KartografExportRule.php \
+  --error-format json --memory-limit 4G > /tmp/phpstan.json
+kartograf enrich php --from-json /tmp/phpstan.json /path/to/project
+```
+
+Container paths in the JSONL are mapped onto indexed files
+automatically (longest-suffix match).
+
+Re-runs are incremental for free: edges ride PHPStan's result cache,
+so only changed files are re-analysed (~20s warm on a 79k-file
+monolith vs minutes cold). The JSONL is rewritten wholesale on each
+run — replace semantics, no merging.
+
+Commit the JSONL to share resolved call graphs with the whole team
+(and CI agents), or gitignore `.kartograf/` and re-run `enrich` after
+big changes — both work, `index`/`serve` auto-import on file change
+either way.
+
+### Performance expectations
+
+grep wins on raw text; kartograf wins on graph semantics:
+
+| Task | grep/rg | kartograf |
+|------|---------|-----------|
+| text search | ~0.06s | ~ms (`search_symbols`, warm) |
+| find usages of a class | hundreds of noisy text matches | typed edges with kind + resolution |
+| who calls this method | impractical | `get_callers` ~ms (PHP needs enrich) |
+| first response after MCP start | — | <1s on an 80k-file repo (index refresh runs in background) |
+
 ## Project config — `.kartograf.yml` (optional)
 
 ```yaml

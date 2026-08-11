@@ -87,6 +87,7 @@ func newEnrichPHPCmd() *cobra.Command {
 		neonPath   string
 		memLimit   string
 		skipRun    bool
+		fromJSON   string
 	)
 	cmd := &cobra.Command{
 		Use:   "php [root]",
@@ -121,7 +122,17 @@ KARTOGRAF_EDGES=<path> and the generated config, then import with
 			}
 			out := enrich.FilePath(absRoot, "phpstan")
 
-			if !skipRun {
+			if fromJSON != "" {
+				// Docker/CI flow: parse a raw phpstan JSON captured
+				// wherever PHP lives.
+				edges, err := enrich.ParsePHPStanJSONFile(fromJSON)
+				if err != nil {
+					return err
+				}
+				if err := enrich.WriteFile(out, edges); err != nil {
+					return err
+				}
+			} else if !skipRun {
 				if phpstanBin == "" {
 					phpstanBin = enrich.FindPHPStan(absRoot)
 					if phpstanBin == "" {
@@ -143,6 +154,8 @@ KARTOGRAF_EDGES=<path> and the generated config, then import with
 				return err
 			}
 			fmt.Printf("enriched: %d edges in %s imported\n", n, out)
+			fmt.Println("tip: commit .kartograf/enrich.phpstan.jsonl to share resolved call graphs with" +
+				" the team, or add .kartograf/ to .gitignore and re-run enrich after big changes")
 			return nil
 		},
 	}
@@ -151,6 +164,7 @@ KARTOGRAF_EDGES=<path> and the generated config, then import with
 	cmd.Flags().StringVar(&neonPath, "neon", "", "project phpstan config to include (default: autodetect)")
 	cmd.Flags().StringVar(&memLimit, "memory-limit", "4G", "phpstan memory limit")
 	cmd.Flags().BoolVar(&skipRun, "skip-run", false, "only scaffold config and import an existing JSONL")
+	cmd.Flags().StringVar(&fromJSON, "from-json", "", "parse a raw phpstan --error-format=json output file (docker/CI flow) instead of running phpstan")
 	return cmd
 }
 

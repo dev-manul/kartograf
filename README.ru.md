@@ -134,6 +134,44 @@ claude mcp add kartograf -- kartograf serve /path/to/project
   phpstan где угодно и импортируйте: `kartograf enrich import <file>
   --source phpstan` (контейнерные пути маппятся автоматически).
 
+### Enrich в Docker / CI
+
+Если PHP живёт только в контейнере: сгенерируйте конфиг локально,
+запустите PHPStan там, где есть PHP, и импортируйте результат:
+
+```sh
+kartograf enrich php --skip-run /path/to/project   # только scaffold .kartograf/phpstan/
+docker compose exec app php vendor/bin/phpstan analyse \
+  -c .kartograf/phpstan/kartograf.neon \
+  --autoload-file .kartograf/phpstan/KartografExportRule.php \
+  --error-format json --memory-limit 4G > /tmp/phpstan.json
+kartograf enrich php --from-json /tmp/phpstan.json /path/to/project
+```
+
+Контейнерные пути в JSONL маппятся на индексированные файлы
+автоматически (по самому длинному суффиксу).
+
+Повторные прогоны инкрементальны бесплатно: рёбра едут через result
+cache PHPStan, поэтому переанализируются только изменённые файлы
+(~20 с на тёплом кэше 79k-файлового монолита против минут с нуля).
+JSONL перезаписывается целиком — семантика replace, без слияния.
+
+Коммитьте JSONL, чтобы шарить разрезолвленный граф вызовов с командой
+(и CI-агентами), либо добавьте `.kartograf/` в `.gitignore` и
+перегоняйте `enrich` после больших изменений — работает и так и так,
+`index`/`serve` реимпортируют файл при изменении.
+
+### Ожидания по скорости
+
+grep выигрывает на сыром тексте; kartograf — на семантике графа:
+
+| Задача | grep/rg | kartograf |
+|--------|---------|-----------|
+| поиск текста | ~0.06s | ~мс (`search_symbols`, тёплый) |
+| использования класса | сотни шумных текстовых совпадений | типизированные рёбра с kind и резолвом |
+| кто вызывает метод | нереально | `get_callers` ~мс (PHP требует enrich) |
+| первый ответ после старта MCP | — | <1 с на 80k-файловой репе (рефреш индекса в фоне) |
+
 ## Конфиг проекта — `.kartograf.yml` (опционально)
 
 ```yaml

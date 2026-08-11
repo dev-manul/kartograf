@@ -208,6 +208,16 @@ func RunPHPStan(root, phpstanBin, configPath string, memLimit string, logf func(
 	return edges, nil
 }
 
+// ParsePHPStanJSONFile extracts edges from a raw PHPStan
+// --error-format=json output captured elsewhere (docker, CI).
+func ParsePHPStanJSONFile(path string) ([]store.ExtEdge, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return parsePHPStanJSON(data)
+}
+
 // parsePHPStanJSON extracts kartograf.edge pseudo-errors from
 // PHPStan's --error-format=json output.
 func parsePHPStanJSON(data []byte) ([]store.ExtEdge, error) {
