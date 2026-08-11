@@ -553,6 +553,100 @@ func (e *Engine) Hierarchy(fqn string) (ancestors, descendants []Relative, err e
 	return toRelatives(up), toRelatives(down), nil
 }
 
+// ReferencesCount counts all edges pointing at a symbol.
+func (e *Engine) ReferencesCount(fqn string) (int, error) {
+	var n int
+	err := e.s.DB().QueryRow(`SELECT COUNT(*) FROM all_edges WHERE to_fqn = ?`, fqn).Scan(&n)
+	return n, err
+}
+
+// ImpactCaller is one symbol reached while walking the caller graph.
+type ImpactCaller struct {
+	FQN  string `json:"fqn"`
+	File string `json:"file"`
+	Line int    `json:"line"`
+}
+
+// ImpactLevel groups callers by their distance from the changed symbol.
+type ImpactLevel struct {
+	Depth   int            `json:"depth"`
+	Callers []ImpactCaller `json:"callers"`
+}
+
+// Impact walks the caller graph up to maxDepth levels (callers, then
+// callers of callers, ...) and separates test locations — an
+// approximation of the blast radius of changing the symbol. Direct
+// to_fqn matches only; hierarchy-widened calls are not followed, so
+// treat the result as a lower bound.
+func (e *Engine) Impact(fqn string, maxDepth, perLevel int) (levels []ImpactLevel, testFiles []string, truncated bool, err error) {
+	seen := map[string]bool{fqn: true}
+	testSeen := map[string]bool{}
+	frontier := []string{fqn}
+
+	for depth := 1; depth <= maxDepth && len(frontier) > 0; depth++ {
+		var level ImpactLevel
+		level.Depth = depth
+		next := []string{}
+		for start := 0; start < len(frontier); start += 400 {
+			chunk := frontier[start:min(start+400, len(frontier))]
+			placeholders := strings.Repeat("?, ", len(chunk)-1) + "?"
+			args := make([]any, len(chunk))
+			for i, c := range chunk {
+				args[i] = c
+			}
+			rows, qerr := e.s.DB().Query(`SELECT DISTINCT e.from_fqn, e.file, MIN(e.line)
+				FROM all_edges e
+				WHERE e.kind IN ('calls', 'instantiates') AND e.from_fqn != '' AND e.to_fqn IN (`+placeholders+`)
+				GROUP BY e.from_fqn, e.file`, args...)
+			if qerr != nil {
+				return nil, nil, false, qerr
+			}
+			for rows.Next() {
+				var c ImpactCaller
+				if err := rows.Scan(&c.FQN, &c.File, &c.Line); err != nil {
+					rows.Close()
+					return nil, nil, false, err
+				}
+				if isTestPath(c.File) {
+					if !testSeen[c.File] {
+						testSeen[c.File] = true
+						testFiles = append(testFiles, c.File)
+					}
+					continue
+				}
+				if seen[c.FQN] {
+					continue
+				}
+				seen[c.FQN] = true
+				if len(level.Callers) >= perLevel {
+					truncated = true
+					continue
+				}
+				level.Callers = append(level.Callers, c)
+				next = append(next, c.FQN)
+			}
+			if err := rows.Err(); err != nil {
+				rows.Close()
+				return nil, nil, false, err
+			}
+			rows.Close()
+		}
+		if len(level.Callers) > 0 {
+			sort.Slice(level.Callers, func(i, j int) bool { return level.Callers[i].FQN < level.Callers[j].FQN })
+			levels = append(levels, level)
+		}
+		frontier = next
+	}
+	sort.Strings(testFiles)
+	return levels, testFiles, truncated, nil
+}
+
+func isTestPath(p string) bool {
+	return strings.HasPrefix(p, "tests/") || strings.Contains(p, "/tests/") ||
+		strings.Contains(p, "/Tests/") || strings.Contains(p, "/__tests__/") ||
+		strings.HasSuffix(p, "_test.go") || strings.Contains(p, ".test.")
+}
+
 // FileOutline lists all symbols declared in a file.
 func (e *Engine) FileOutline(path string) ([]SymbolHit, error) {
 	rows, err := e.s.DB().Query(`SELECT `+symbolCols+`

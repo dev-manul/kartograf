@@ -76,6 +76,11 @@ type edgesOut struct {
 	Results []query.EdgeHit `json:"results"`
 }
 
+type hierarchyOut struct {
+	Ancestors   []query.Relative `json:"ancestors"`
+	Descendants []query.Relative `json:"descendants"`
+}
+
 const maxLimit = 500
 
 func limit(n int) int {
@@ -128,7 +133,9 @@ func register(s *mcp.Server, q *query.Engine) {
 		Name: "get_symbol",
 		Description: "Get a symbol's declaration details. Args: fqn (full FQN or bare trailing segment " +
 			"like UserService or Foo::bar()), includeSource (bool). Returns location, signature, doc, " +
-			"members (for classes/interfaces/traits/enums) and optionally source code.",
+			"members (for classes/interfaces/traits/enums) and optionally source code. To read a " +
+			"method/function body before editing it, ONE call with includeSource=true is enough — " +
+			"no extra file reads needed.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in getSymbolIn) (*mcp.CallToolResult, declarationsOut, error) {
 		var zero declarationsOut
 		hits, err := q.GetSymbol(in.FQN)
@@ -185,10 +192,6 @@ func register(s *mcp.Server, q *query.Engine) {
 		return nil, edgesOut{Results: nonNil(hits)}, err
 	})
 
-	type hierarchyOut struct {
-		Ancestors   []query.Relative `json:"ancestors"`
-		Descendants []query.Relative `json:"descendants"`
-	}
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "class_hierarchy",
 		Description: "Full inheritance neighborhood of a class/interface/trait: transitive ancestors " +
@@ -196,6 +199,107 @@ func register(s *mcp.Server, q *query.Engine) {
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in fqnIn) (*mcp.CallToolResult, hierarchyOut, error) {
 		up, down, err := q.Hierarchy(resolveFQN(q, in.FQN))
 		return nil, hierarchyOut{Ancestors: nonNil(up), Descendants: nonNil(down)}, err
+	})
+
+	type exploreIn struct {
+		FQN        string `json:"fqn" jsonschema:"symbol FQN or bare trailing segment (UserService, Foo::bar())"`
+		SkipSource bool   `json:"skipSource,omitempty" jsonschema:"omit source code of the declaration (saves tokens)"`
+		MaxEdges   int    `json:"maxEdges,omitempty" jsonschema:"max callers and callees each, default 15"`
+	}
+	type exploreOut struct {
+		Declarations    []symbolOut      `json:"declarations"`
+		Callers         []query.EdgeHit  `json:"callers"`
+		Callees         []query.EdgeHit  `json:"callees"`
+		Ancestors       []query.Relative `json:"ancestors"`
+		Descendants     []query.Relative `json:"descendants"`
+		ReferencesTotal int              `json:"referencesTotal"`
+	}
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "explore",
+		Description: "One-shot overview of a symbol: declaration with source, top callers and callees, " +
+			"class hierarchy and total reference count in a single call. Args: fqn (or bare name), " +
+			"skipSource, maxEdges. Start here for 'how does X work' questions; use the granular tools " +
+			"(get_callers, find_references, ...) when you need one specific slice with filters.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in exploreIn) (*mcp.CallToolResult, exploreOut, error) {
+		var out exploreOut
+		fqn := resolveFQN(q, in.FQN)
+		hits, err := q.GetSymbol(fqn)
+		if err != nil {
+			return nil, out, err
+		}
+		if len(hits) == 0 {
+			return nil, out, fmt.Errorf("symbol %q not found; try search_symbols", in.FQN)
+		}
+		maxEdges := in.MaxEdges
+		if maxEdges <= 0 || maxEdges > 100 {
+			maxEdges = 15
+		}
+		for _, h := range hits[:min(len(hits), 3)] {
+			o := symbolOut{SymbolHit: h}
+			switch h.Kind {
+			case "class", "interface", "trait", "enum":
+				if members, err := q.Members(h.FQN); err == nil {
+					o.Members = members
+				}
+			}
+			if !in.SkipSource {
+				if src, err := q.Source(h, 120); err == nil {
+					o.Source = src
+				}
+			}
+			out.Declarations = append(out.Declarations, o)
+		}
+		if callers, err := q.Callers(fqn, maxEdges, query.EdgeFilter{}); err == nil {
+			out.Callers = nonNil(callers)
+		}
+		if callees, err := q.Callees(fqn, maxEdges, query.EdgeFilter{}); err == nil {
+			out.Callees = nonNil(callees)
+		}
+		if up, down, err := q.Hierarchy(fqn); err == nil {
+			out.Ancestors = nonNil(up)
+			if len(down) > 50 {
+				down = down[:50]
+			}
+			out.Descendants = nonNil(down)
+		}
+		out.ReferencesTotal, _ = q.ReferencesCount(fqn)
+		return nil, out, nil
+	})
+
+	type impactIn struct {
+		FQN      string `json:"fqn" jsonschema:"symbol FQN or bare trailing segment"`
+		Depth    int    `json:"depth,omitempty" jsonschema:"how many caller levels to walk, default 3, max 5"`
+		PerLevel int    `json:"perLevel,omitempty" jsonschema:"max callers reported per level, default 25"`
+	}
+	type impactOut struct {
+		Levels        []query.ImpactLevel `json:"levels"`
+		AffectedTests []string            `json:"affectedTests"`
+		Truncated     bool                `json:"truncated"`
+	}
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "impact",
+		Description: "Blast radius of changing a symbol: transitive callers grouped by distance " +
+			"(direct callers = depth 1, their callers = depth 2, ...) plus test files that exercise " +
+			"the affected code. Args: fqn (or bare name), depth (default 3), perLevel (default 25). " +
+			"Lower bound: only exactly-resolved call edges are followed.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in impactIn) (*mcp.CallToolResult, impactOut, error) {
+		var out impactOut
+		depth := in.Depth
+		if depth <= 0 || depth > 5 {
+			depth = 3
+		}
+		perLevel := in.PerLevel
+		if perLevel <= 0 || perLevel > 200 {
+			perLevel = 25
+		}
+		levels, tests, truncated, err := q.Impact(resolveFQN(q, in.FQN), depth, perLevel)
+		if err != nil {
+			return nil, out, err
+		}
+		out.Levels = nonNil(levels)
+		out.AffectedTests = nonNil(tests)
+		out.Truncated = truncated
+		return nil, out, nil
 	})
 
 	mcp.AddTool(s, &mcp.Tool{

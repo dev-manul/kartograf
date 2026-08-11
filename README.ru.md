@@ -67,6 +67,7 @@ kartograf index --rebuild                   # с нуля
 kartograf serve [root]                      # MCP-сервер на stdio (сам доиндексирует на старте)
 kartograf outline path/to/File.php          # символы файла
 kartograf outline --json path/to/File.php   # полный FileIndex в JSON
+kartograf install claude|cursor [root]     # зарегистрировать MCP-сервер у клиента
 kartograf self-update                       # обновиться до последнего релиза
 ```
 
@@ -99,6 +100,8 @@ claude mcp add kartograf -- kartograf serve /path/to/project
 | `get_callees` | Что вызывает/инстанцирует символ |
 | `class_hierarchy` | Транзитивные предки и потомки (реализации интерфейса) |
 | `file_outline` | Символы файла |
+| `explore` | Обзор одним вызовом: декларация + сорс, callers, callees, иерархия, счётчик ссылок |
+| `impact` | Радиус поражения: транзитивные callers по уровням + задетые тесты |
 
 Рёбра с `resolved=false` — эвристика (вызов через `parent::`,
 выведенный тип получателя, глобальный фолбэк функций); точные рёбра
@@ -209,6 +212,11 @@ vendor: index      # index (по умолчанию, с пометкой vendor)
 
 Файлы с синтаксическими ошибками парсятся best-effort и помечаются
 `hasErrors` (error-recovery у tree-sitter).
+
+## Документация
+
+- [docs/install-prompt.md](docs/install-prompt.md) — инструкции установки для AI-агентов
+- [docs/cursor.md](docs/cursor.md) — MCP в Cursor (`type: stdio`, troubleshooting)
 
 ## Отладка грамматик
 

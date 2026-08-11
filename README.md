@@ -68,6 +68,7 @@ kartograf index --rebuild                   # from scratch
 kartograf serve [root]                      # MCP server on stdio (updates the index on start)
 kartograf outline path/to/File.php          # symbols of one file
 kartograf outline --json path/to/File.php   # full FileIndex as JSON
+kartograf install claude|cursor [root]     # register the MCP server for a client
 kartograf self-update                       # update to the latest release
 ```
 
@@ -100,6 +101,8 @@ built once after the load), warm run ~1.5s.
 | `get_callees` | What a symbol calls or instantiates |
 | `class_hierarchy` | Transitive ancestors and descendants (interface implementations) |
 | `file_outline` | Symbols declared in a file |
+| `explore` | One-shot overview: declaration + source, callers, callees, hierarchy, reference count |
+| `impact` | Blast radius: transitive callers by depth + affected test files |
 
 Edges with `resolved=false` are heuristic (calls via `parent::`,
 inferred receiver types, global function fallback); exact edges follow
@@ -212,6 +215,11 @@ indexed bypassing gitignore and flagged as vendor.
 
 Files with syntax errors are parsed best-effort and flagged
 `hasErrors` (tree-sitter error recovery).
+
+## Documentation
+
+- [docs/install-prompt.md](docs/install-prompt.md) — AI agent install instructions
+- [docs/cursor.md](docs/cursor.md) — Cursor MCP setup (`type: stdio`, troubleshooting)
 
 ## Grammar debugging
 
