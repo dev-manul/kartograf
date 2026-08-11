@@ -25,10 +25,13 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: macos-14 # Apple Silicon
+          - os: macos-14 # Apple Silicon, native
             artifact: kartograf-darwin-arm64
-          - os: macos-13 # Intel
+          - os: macos-14 # Intel via cross-compile: Apple clang targets
+            # x86_64 from arm64 out of the box, and macos-13 Intel
+            # runners are deprecated/scarce (jobs hang in queue).
             artifact: kartograf-darwin-amd64
+            goarch: amd64
           - os: ubuntu-latest
             artifact: kartograf-linux-amd64
           - os: ubuntu-24.04-arm
@@ -40,6 +43,9 @@ jobs:
         with:
           go-version-file: go.mod
       - run: make build VERSION=v0.1.${{ github.run_number }}
+        env:
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "1"
       - run: mv bin/kartograf ${{ matrix.artifact }}
       - uses: actions/upload-artifact@v4
         with:
