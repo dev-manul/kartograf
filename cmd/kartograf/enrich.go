@@ -88,6 +88,7 @@ func newEnrichPHPCmd() *cobra.Command {
 		memLimit   string
 		skipRun    bool
 		fromJSON   string
+		extraPaths []string
 	)
 	cmd := &cobra.Command{
 		Use:   "php [root]",
@@ -116,7 +117,7 @@ KARTOGRAF_EDGES=<path> and the generated config, then import with
 					return fmt.Errorf("no phpstan.neon found at %s; pass --neon", absRoot)
 				}
 			}
-			configPath, err := enrich.ScaffoldPHP(absRoot, neonPath)
+			configPath, err := enrich.ScaffoldPHP(absRoot, neonPath, extraPaths)
 			if err != nil {
 				return err
 			}
@@ -165,6 +166,7 @@ KARTOGRAF_EDGES=<path> and the generated config, then import with
 	cmd.Flags().StringVar(&memLimit, "memory-limit", "4G", "phpstan memory limit")
 	cmd.Flags().BoolVar(&skipRun, "skip-run", false, "only scaffold config and import an existing JSONL")
 	cmd.Flags().StringVar(&fromJSON, "from-json", "", "parse a raw phpstan --error-format=json output file (docker/CI flow) instead of running phpstan")
+	cmd.Flags().StringSliceVar(&extraPaths, "extra-paths", nil, "extra dirs to analyse on top of the project config paths (e.g. api/tests) — brings call edges from tests into the graph")
 	return cmd
 }
 

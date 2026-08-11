@@ -644,6 +644,32 @@ func (s *Store) IndexedPaths() (map[string]bool, error) {
 	return m, rows.Err()
 }
 
+// ProjectPaths returns non-vendor indexed file paths, optionally
+// narrowed by a path prefix.
+func (s *Store) ProjectPaths(prefix string) ([]string, error) {
+	q := `SELECT path FROM files WHERE vendor = 0`
+	var args []any
+	if prefix != "" {
+		q += ` AND path LIKE ? ESCAPE '!'`
+		args = append(args, strings.NewReplacer("!", "!!", "%", "!%", "_", "!_").Replace(prefix)+"%")
+	}
+	q += ` ORDER BY path`
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
 // SplitWords breaks an identifier into lowercase words for full-text
 // search: "BannerHTTPRepository_v2" -> "banner http repository v2".
 func SplitWords(name string) string {

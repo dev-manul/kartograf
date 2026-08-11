@@ -8,8 +8,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"runtime"
 	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"github.com/dev-manul/kartograf/internal/core/store"
 )
@@ -185,16 +189,22 @@ func (e *Engine) Members(containerFQN string) ([]SymbolHit, error) {
 	return scanHits(rows)
 }
 
-// Source reads the declaration's source text (capped at maxLines).
-func (e *Engine) Source(h SymbolHit, maxLines int) (string, error) {
+// Source reads a window of the declaration's source text: offset
+// lines below the declaration start, at most maxLines lines. The
+// truncation marker tells the caller which offset fetches the next
+// window, so long bodies are pageable.
+func (e *Engine) Source(h SymbolHit, offset, maxLines int) (string, error) {
 	data, err := os.ReadFile(filepath.Join(e.root, filepath.FromSlash(h.File)))
 	if err != nil {
 		return "", err
 	}
 	lines := strings.Split(string(data), "\n")
-	start, end := h.Line-1, h.EndLine
-	if start < 0 || start >= len(lines) {
+	start, end := h.Line-1+offset, h.EndLine
+	if h.Line-1 < 0 || h.Line-1 >= len(lines) {
 		return "", fmt.Errorf("stale index: %s out of range in %s", h.FQN, h.File)
+	}
+	if start >= end || start >= len(lines) {
+		return "", fmt.Errorf("sourceOffset %d is past the end of %s (declaration spans %d lines)", offset, h.FQN, h.EndLine-h.Line+1)
 	}
 	if end > len(lines) {
 		end = len(lines)
@@ -206,7 +216,7 @@ func (e *Engine) Source(h SymbolHit, maxLines int) (string, error) {
 	}
 	src := strings.Join(lines[start:end], "\n")
 	if truncated {
-		src += "\n// … truncated …"
+		src += fmt.Sprintf("\n// … truncated at line %d — call again with sourceOffset=%d for the next window …", end, end-h.Line+1)
 	}
 	return src, nil
 }
@@ -674,6 +684,40 @@ func isTestPath(p string) bool {
 		strings.HasSuffix(p, "_test.go") || strings.Contains(p, ".test.")
 }
 
+// TestFilesReferencing lists test files that hold any edge pointing
+// at one of the given FQNs — the fallback signal for impact when no
+// call edges originate from tests (test code sits outside the
+// type-inference pass and mocks defeat AST resolution).
+func (e *Engine) TestFilesReferencing(fqns []string, limit int) ([]string, error) {
+	if len(fqns) == 0 {
+		return nil, nil
+	}
+	placeholders := strings.Repeat("?, ", len(fqns)-1) + "?"
+	args := make([]any, len(fqns), len(fqns)+1)
+	for i, f := range fqns {
+		args[i] = f
+	}
+	args = append(args, limit)
+	rows, err := e.s.DB().Query(`SELECT DISTINCT e.file FROM all_edges e
+		WHERE e.to_fqn IN (`+placeholders+`)
+			AND (e.file LIKE 'tests/%' OR e.file LIKE '%/tests/%' OR e.file LIKE '%/Tests/%'
+				OR e.file LIKE '%/__tests__/%' OR e.file LIKE '%_test.go' OR e.file LIKE '%.test.%')
+		ORDER BY e.file LIMIT ?`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var f string
+		if err := rows.Scan(&f); err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
 // FileOutline lists all symbols declared in a file.
 func (e *Engine) FileOutline(path string) ([]SymbolHit, error) {
 	rows, err := e.s.DB().Query(`SELECT `+symbolCols+`
@@ -682,4 +726,95 @@ func (e *Engine) FileOutline(path string) ([]SymbolHit, error) {
 		return nil, err
 	}
 	return scanHits(rows)
+}
+
+// CodeMatch is one line-level hit of a full-text code search.
+type CodeMatch struct {
+	File string `json:"file"`
+	Line int    `json:"line"`
+	Text string `json:"text"`
+}
+
+// SearchCode scans the contents of indexed project files (non-vendor)
+// for a literal substring or regex — the complement to SearchSymbols
+// for things that live in string literals (metric ids, SQL aliases,
+// config keys). Literal search is case-insensitive.
+func (e *Engine) SearchCode(pattern string, isRegex bool, pathPrefix string, limit int) ([]CodeMatch, bool, error) {
+	paths, err := e.s.ProjectPaths(pathPrefix)
+	if err != nil {
+		return nil, false, err
+	}
+	var match func(line string) bool
+	if isRegex {
+		re, err := regexp.Compile(pattern)
+		if err != nil {
+			return nil, false, fmt.Errorf("bad regex: %w", err)
+		}
+		match = re.MatchString
+	} else {
+		needle := strings.ToLower(pattern)
+		match = func(line string) bool { return strings.Contains(strings.ToLower(line), needle) }
+	}
+
+	type job struct{ path string }
+	jobs := make(chan string)
+	var mu sync.Mutex
+	var out []CodeMatch
+	var stop atomic.Bool
+
+	var wg sync.WaitGroup
+	for range runtime.NumCPU() {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for path := range jobs {
+				if stop.Load() {
+					continue
+				}
+				data, err := os.ReadFile(filepath.Join(e.root, filepath.FromSlash(path)))
+				if err != nil {
+					continue
+				}
+				for i, line := range strings.Split(string(data), "\n") {
+					if !match(line) {
+						continue
+					}
+					text := strings.TrimSpace(line)
+					if len(text) > 200 {
+						text = text[:200] + "…"
+					}
+					mu.Lock()
+					if len(out) <= limit {
+						out = append(out, CodeMatch{File: path, Line: i + 1, Text: text})
+					}
+					full := len(out) > limit
+					mu.Unlock()
+					if full {
+						stop.Store(true)
+						break
+					}
+				}
+			}
+		}()
+	}
+	for _, p := range paths {
+		if stop.Load() {
+			break
+		}
+		jobs <- p
+	}
+	close(jobs)
+	wg.Wait()
+
+	truncated := len(out) > limit
+	if truncated {
+		out = out[:limit]
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].File != out[j].File {
+			return out[i].File < out[j].File
+		}
+		return out[i].Line < out[j].Line
+	})
+	return out, truncated, nil
 }

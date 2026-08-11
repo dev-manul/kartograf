@@ -105,6 +105,7 @@ built once after the load), warm run ~1.5s.
 | `file_outline` | Symbols declared in a file |
 | `explore` | One-shot overview: declaration + source, callers, callees, hierarchy, reference count |
 | `impact` | Blast radius: transitive callers by depth + affected test files |
+| `search_code` | Full-text search over file contents: string literals, SQL, config keys |
 
 Edges with `resolved=false` are heuristic (calls via `parent::`,
 inferred receiver types, global function fallback); exact edges follow

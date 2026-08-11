@@ -5,6 +5,7 @@ package mcpserver
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -45,7 +46,8 @@ func edgeFilter(in fqnIn) query.EdgeFilter {
 
 type getSymbolIn struct {
 	FQN           string `json:"fqn" jsonschema:"symbol FQN; a bare trailing segment like UserService also works"`
-	IncludeSource bool   `json:"includeSource,omitempty" jsonschema:"include the declaration source code (capped at 200 lines)"`
+	IncludeSource bool   `json:"includeSource,omitempty" jsonschema:"include the declaration source code (200-line window)"`
+	SourceOffset  int    `json:"sourceOffset,omitempty" jsonschema:"start the source window this many lines below the declaration start — page through long bodies (the truncation marker names the next offset)"`
 }
 
 type outlineIn struct {
@@ -102,6 +104,20 @@ func nonNil[T any](s []T) []T {
 	return s
 }
 
+// methodSplitForImpact extracts the container FQN from a member FQN
+// ("A\\B::m()" -> "A\\B", "pkg.T.M()" -> "pkg.T").
+func methodSplitForImpact(fqn string) (string, string, bool) {
+	if c, m, found := strings.Cut(fqn, "::"); found {
+		return c, m, true
+	}
+	if strings.HasSuffix(fqn, "()") {
+		if i := strings.LastIndex(fqn, "."); i >= 0 {
+			return fqn[:i], fqn[i+1:], true
+		}
+	}
+	return "", "", false
+}
+
 // resolveFQN expands a short name ("Foo::bar()", "Button") into the
 // full FQN via the symbol table, so every graph tool honors the
 // "a bare trailing segment also works" promise, not just get_symbol.
@@ -155,7 +171,7 @@ func register(s *mcp.Server, q *query.Engine) {
 				}
 			}
 			if in.IncludeSource {
-				if src, err := q.Source(h, 200); err == nil {
+				if src, err := q.Source(h, max(in.SourceOffset, 0), 200); err == nil {
 					o.Source = src
 				}
 			}
@@ -243,7 +259,7 @@ func register(s *mcp.Server, q *query.Engine) {
 				}
 			}
 			if !in.SkipSource {
-				if src, err := q.Source(h, 120); err == nil {
+				if src, err := q.Source(h, 0, 120); err == nil {
 					o.Source = src
 				}
 			}
@@ -266,6 +282,34 @@ func register(s *mcp.Server, q *query.Engine) {
 		return nil, out, nil
 	})
 
+	type searchCodeIn struct {
+		Query      string `json:"query" jsonschema:"substring (case-insensitive) or regex to find in project file contents"`
+		Regex      bool   `json:"regex,omitempty" jsonschema:"treat query as a Go regular expression"`
+		PathPrefix string `json:"pathPrefix,omitempty" jsonschema:"only files under this root-relative path prefix"`
+		Limit      int    `json:"limit,omitempty" jsonschema:"max matching lines, default 50, max 200"`
+	}
+	type searchCodeOut struct {
+		Results   []query.CodeMatch `json:"results"`
+		Truncated bool              `json:"truncated"`
+	}
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "search_code",
+		Description: "Full-text search over the CONTENTS of indexed project files (vendor excluded) — for " +
+			"string literals, metric ids, SQL aliases, config keys and anything else that is not a declared " +
+			"symbol. search_symbols only sees symbol names; use this when it returns nothing. " +
+			"Args: query, regex, pathPrefix, limit.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in searchCodeIn) (*mcp.CallToolResult, searchCodeOut, error) {
+		lim := in.Limit
+		if lim <= 0 || lim > 200 {
+			lim = 50
+		}
+		hits, truncated, err := q.SearchCode(in.Query, in.Regex, in.PathPrefix, lim)
+		if err != nil {
+			return nil, searchCodeOut{}, err
+		}
+		return nil, searchCodeOut{Results: nonNil(hits), Truncated: truncated}, nil
+	})
+
 	type impactIn struct {
 		FQN      string `json:"fqn" jsonschema:"symbol FQN or bare trailing segment"`
 		Depth    int    `json:"depth,omitempty" jsonschema:"how many caller levels to walk, default 3, max 5"`
@@ -274,6 +318,7 @@ func register(s *mcp.Server, q *query.Engine) {
 	type impactOut struct {
 		Levels        []query.ImpactLevel `json:"levels"`
 		AffectedTests []string            `json:"affectedTests"`
+		TestsNote     string              `json:"testsNote,omitempty"`
 		Truncated     bool                `json:"truncated"`
 	}
 	mcp.AddTool(s, &mcp.Tool{
@@ -292,9 +337,26 @@ func register(s *mcp.Server, q *query.Engine) {
 		if perLevel <= 0 || perLevel > 200 {
 			perLevel = 25
 		}
-		levels, tests, truncated, err := q.Impact(resolveFQN(q, in.FQN), depth, perLevel)
+		fqn := resolveFQN(q, in.FQN)
+		levels, tests, truncated, err := q.Impact(fqn, depth, perLevel)
 		if err != nil {
 			return nil, out, err
+		}
+		if len(tests) == 0 {
+			// Test code sits outside the type-inference pass and mocks
+			// defeat AST resolution, so direct call edges from tests
+			// are rare — fall back to test files referencing the
+			// symbol or its class in any way.
+			targets := []string{fqn}
+			if class, _, ok := methodSplitForImpact(fqn); ok {
+				targets = append(targets, class)
+			}
+			if refs, err := q.TestFilesReferencing(targets, 20); err == nil && len(refs) > 0 {
+				tests = refs
+				out.TestsNote = "no call edges from tests reach this symbol; listed files reference the symbol or its class instead"
+			} else {
+				out.TestsNote = "no test references found in the graph — coverage may still exist via HTTP/acceptance tests"
+			}
 		}
 		out.Levels = nonNil(levels)
 		out.AffectedTests = nonNil(tests)
