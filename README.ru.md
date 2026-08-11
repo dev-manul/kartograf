@@ -68,6 +68,8 @@ kartograf serve [root]                      # MCP-сервер на stdio (са�
 kartograf outline path/to/File.php          # символы файла
 kartograf outline --json path/to/File.php   # полный FileIndex в JSON
 kartograf install claude|cursor [root]     # зарегистрировать MCP-сервер у клиента
+kartograf install hook [root]               # хук Claude Code: упоминание символа в промпте
+                                            # подсказывает агенту сходить в граф
 kartograf self-update                       # обновиться до последнего релиза
 ```
 

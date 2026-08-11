@@ -27,7 +27,7 @@ func main() {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	root.AddCommand(newIndexCmd(), newServeCmd(), newEnrichCmd(), newOutlineCmd(), newInstallCmd(), newSelfUpdateCmd(), newParseTreeCmd())
+	root.AddCommand(newIndexCmd(), newServeCmd(), newEnrichCmd(), newOutlineCmd(), newInstallCmd(), newHookCmd(), newSelfUpdateCmd(), newParseTreeCmd())
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "kartograf:", err)

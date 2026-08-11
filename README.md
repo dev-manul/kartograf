@@ -69,6 +69,8 @@ kartograf serve [root]                      # MCP server on stdio (updates the i
 kartograf outline path/to/File.php          # symbols of one file
 kartograf outline --json path/to/File.php   # full FileIndex as JSON
 kartograf install claude|cursor [root]     # register the MCP server for a client
+kartograf install hook [root]               # Claude Code prompt hook: mentions of indexed
+                                            # symbols nudge the agent to query the graph
 kartograf self-update                       # update to the latest release
 ```
 

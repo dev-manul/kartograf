@@ -553,6 +553,33 @@ func (e *Engine) Hierarchy(fqn string) (ancestors, descendants []Relative, err e
 	return toRelatives(up), toRelatives(down), nil
 }
 
+// SymbolsByNames returns project (non-vendor, non-test) symbols whose
+// short name exactly matches any of names. Used by the prompt hook, so
+// it must stay cheap: one indexed IN query.
+func (e *Engine) SymbolsByNames(names []string, limit int) ([]SymbolHit, error) {
+	if len(names) == 0 {
+		return nil, nil
+	}
+	if len(names) > 50 {
+		names = names[:50]
+	}
+	placeholders := strings.Repeat("?, ", len(names)-1) + "?"
+	args := make([]any, len(names), len(names)+1)
+	for i, n := range names {
+		args[i] = n
+	}
+	args = append(args, limit)
+	rows, err := e.s.DB().Query(`SELECT `+symbolCols+`
+		WHERE s.name IN (`+placeholders+`) AND f.vendor = 0
+			AND NOT (f.path LIKE 'tests/%' OR f.path LIKE '%/tests/%' OR f.path LIKE '%/Tests/%')
+		ORDER BY s.kind IN ('class', 'interface', 'trait', 'enum') DESC, s.fqn
+		LIMIT ?`, args...)
+	if err != nil {
+		return nil, err
+	}
+	return scanHits(rows)
+}
+
 // ReferencesCount counts all edges pointing at a symbol.
 func (e *Engine) ReferencesCount(fqn string) (int, error) {
 	var n int
