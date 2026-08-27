@@ -71,7 +71,7 @@ All progress output goes to stderr; stdout carries the MCP protocol.`,
 				logf("index refresh: %d reindexed, %d unchanged, %d removed, %s",
 					stats.Indexed, stats.Unchanged, stats.Removed,
 					stats.Duration.Round(10_000_000))
-				if err := enrich.AutoImport(s, absRoot, logf); err != nil {
+				if err := enrich.AutoImport(s, absRoot, cfg, logf); err != nil {
 					logf("enrich auto-import: %v", err)
 				}
 				return nil

@@ -207,7 +207,7 @@ func process(opts Options, known map[string]store.FileMeta, modules map[string]s
 // excludes; vendor directories bypass gitignore (they are usually
 // ignored) and are included or skipped wholesale per config.
 func collect(root string, cfg config.Config) ([]entry, map[string]string, error) {
-	matcher := buildMatcher(root, cfg)
+	matcher := Matcher(root, cfg)
 
 	roots := cfg.Include
 	if len(roots) == 0 {
@@ -313,18 +313,31 @@ func readModulePath(path string) string {
 	return ""
 }
 
-// buildMatcher combines the project's .gitignore hierarchy with extra
+// Matcher combines the project's .gitignore hierarchy with extra
 // exclude patterns from config. Gitignore read failures are not fatal:
 // the index just gets a few extra files.
-func buildMatcher(root string, cfg config.Config) gitignore.Matcher {
+func Matcher(root string, cfg config.Config) gitignore.Matcher {
 	var patterns []gitignore.Pattern
 	if ps, err := gitignore.ReadPatterns(osfs.New(root), nil); err == nil {
 		patterns = ps
 	}
+	return gitignore.NewMatcher(append(patterns, excludePatterns(cfg)...))
+}
+
+// ExcludeMatcher applies only the config exclude patterns. Reading the
+// .gitignore hierarchy costs a full tree scan (seconds on a large
+// workspace); callers that walk directories themselves and do not need
+// .gitignore semantics use this instead.
+func ExcludeMatcher(cfg config.Config) gitignore.Matcher {
+	return gitignore.NewMatcher(excludePatterns(cfg))
+}
+
+func excludePatterns(cfg config.Config) []gitignore.Pattern {
+	patterns := make([]gitignore.Pattern, 0, len(cfg.Exclude))
 	for _, p := range cfg.Exclude {
 		patterns = append(patterns, gitignore.ParsePattern(p, nil))
 	}
-	return gitignore.NewMatcher(patterns)
+	return patterns
 }
 
 // inVendor reports whether any path component is a dependency dir.

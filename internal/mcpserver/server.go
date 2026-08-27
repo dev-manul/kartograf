@@ -31,6 +31,9 @@ type searchIn struct {
 	Name   string `json:"name,omitempty" jsonschema:"optional exact symbol name filter: name=create matches create() but not createUser()"`
 	Limit  int    `json:"limit,omitempty" jsonschema:"max results per page, default 50, max 500"`
 	Offset int    `json:"offset,omitempty" jsonschema:"skip this many results (pagination; ordering is stable: project, then tests, then vendor, FTS rank within)"`
+	// PathPrefix narrows a workspace-wide index to one project: the first
+	// path segment of every result is the repository directory.
+	PathPrefix string `json:"pathPrefix,omitempty" jsonschema:"only symbols in files under this root-relative path prefix, e.g. api/src/ or domain-checker/"`
 }
 
 type fqnIn struct {
@@ -132,12 +135,12 @@ func register(s *mcp.Server, q *query.Engine) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "search_symbols",
 		Description: "Search code symbols (classes, methods, functions, constants...) by name or doc text. " +
-			"Args: query (free text), kind, name (exact symbol name), limit (max 500), offset. " +
+			"Args: query (free text), kind, name (exact symbol name), pathPrefix (restrict to one project/directory), limit (max 500), offset. " +
 			"Returns FQN, kind, file:line, signature, plus total/truncated for the full match count " +
 			"(set limit=1 to just count). Project symbols rank before vendor ones.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in searchIn) (*mcp.CallToolResult, symbolsOut, error) {
 		lim := limit(in.Limit)
-		hits, total, err := q.SearchSymbols(in.Query, in.Kind, in.Name, lim, max(in.Offset, 0))
+		hits, total, err := q.SearchSymbols(in.Query, in.Kind, in.Name, in.PathPrefix, lim, max(in.Offset, 0))
 		return nil, symbolsOut{
 			Results:   nonNil(hits),
 			Total:     total,

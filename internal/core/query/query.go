@@ -87,7 +87,7 @@ func ftsQuery(q string) string {
 // SearchSymbols runs a full-text search over names, FQNs and docs.
 // kind optionally narrows to one symbol kind, name to an exact symbol
 // name. total is the number of matches regardless of limit/offset.
-func (e *Engine) SearchSymbols(q, kind, name string, limit, offset int) (hits []SymbolHit, total int, err error) {
+func (e *Engine) SearchSymbols(q, kind, name, pathPrefix string, limit, offset int) (hits []SymbolHit, total int, err error) {
 	match := ftsQuery(q)
 	if match == "" {
 		return nil, 0, fmt.Errorf("empty query")
@@ -102,8 +102,14 @@ func (e *Engine) SearchSymbols(q, kind, name string, limit, offset int) (hits []
 		filter += " AND s.name = ?"
 		filterArgs = append(filterArgs, name)
 	}
+	if pathPrefix != "" {
+		// Narrows a workspace-wide index to one project/directory.
+		filter += " AND f.path LIKE ? ESCAPE '!'"
+		filterArgs = append(filterArgs, escapeLike(pathPrefix)+"%")
+	}
 
 	if err := e.s.DB().QueryRow(`SELECT COUNT(*) FROM symbols s
+		JOIN files f ON f.id = s.file_id
 		JOIN symbols_fts ON symbols_fts.rowid = s.rowid
 		WHERE symbols_fts MATCH ?`+filter, filterArgs...).Scan(&total); err != nil {
 		return nil, 0, err

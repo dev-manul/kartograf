@@ -77,7 +77,7 @@ the user cache dir unless --db is given; project settings are read from
 				return err
 			}
 
-			if err := enrich.AutoImport(s, absRoot, logf); err != nil {
+			if err := enrich.AutoImport(s, absRoot, cfg, logf); err != nil {
 				logf("enrich auto-import: %v", err)
 			}
 

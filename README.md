@@ -96,7 +96,7 @@ built once after the load), warm run ~1.5s.
 
 | Tool | What it does |
 |---|---|
-| `search_symbols` | FTS over names/FQNs/docblocks (camelCase-aware), kind filter |
+| `search_symbols` | FTS over names/FQNs/docblocks (camelCase-aware), kind and path-prefix filters |
 | `get_symbol` | Declaration by FQN (or name suffix): signature, doc, members, source |
 | `find_references` | Every reference to a symbol: calls, new, type hints, instanceof, constants |
 | `get_callers` | Who calls a method/function; class hierarchy is taken into account |
@@ -134,6 +134,17 @@ stored in `.kartograf/enrich.<source>.jsonl` at the project root
 (commit it or gitignore it — your choice) and are re-imported
 automatically by `index`/`serve` whenever the file changes; deleting
 the file retires its edges.
+
+The indexed root may be a workspace of many repositories (`kartograf
+serve ~/projects`): every nested `<repo>/.kartograf/enrich.*.jsonl` is
+discovered and imported too, with tool-reported paths resolved
+relative to the repository that owns the file — two Go services with an
+identical `internal/config/config.go` never get mixed up. Run `enrich`
+inside each repository as usual; the workspace index picks the files
+up on its next refresh. In a workspace, the first path segment of every
+result is the repository directory, and `pathPrefix` (on
+`search_symbols`, `search_code` and the graph tools) narrows a query to
+one repository.
 
 - `kartograf enrich go` — in-process go/packages + go/types pass:
   exact calls (interface calls, fields typed in other files) and

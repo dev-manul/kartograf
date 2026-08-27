@@ -21,7 +21,7 @@ import (
 
 // schemaVersion is bumped on any incompatible schema change; a version
 // mismatch drops and recreates the database (it is cheap to rebuild).
-const schemaVersion = 5
+const schemaVersion = 6
 
 const schema = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -74,9 +74,12 @@ CREATE TABLE IF NOT EXISTS edges (
 );
 
 -- ext_edges hold enrichment data (PHPStan / go-types type-inference
--- exports). They are replaced wholesale per source on import and are
--- not touched by file reindexing.
+-- exports). They are replaced wholesale per origin (one exchange file)
+-- on import and are not touched by file reindexing. A workspace root
+-- may hold several exchange files of the same source, one per nested
+-- project — origin keeps them apart.
 CREATE TABLE IF NOT EXISTS ext_edges (
+	origin   TEXT NOT NULL DEFAULT '', -- root-relative path of the exchange file
 	source   TEXT NOT NULL, -- 'phpstan' | 'go-types' | ...
 	from_fqn TEXT NOT NULL,
 	kind     TEXT NOT NULL,
@@ -86,6 +89,7 @@ CREATE TABLE IF NOT EXISTS ext_edges (
 );
 CREATE INDEX IF NOT EXISTS idx_ext_edges_from ON ext_edges(from_fqn, kind);
 CREATE INDEX IF NOT EXISTS idx_ext_edges_to   ON ext_edges(to_fqn, kind);
+CREATE INDEX IF NOT EXISTS idx_ext_edges_origin ON ext_edges(origin);
 
 -- all_edges is the read-side union of AST edges and enrichment edges.
 -- Dropped and recreated on every open so definition changes reach
@@ -189,27 +193,16 @@ func open(path, projectRoot string, retry bool) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	if _, err := db.Exec(schema); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("store: init schema: %w", err)
-	}
-
-	ver, err := s.metaInt("schema_version")
+	// The version check must precede the DDL: on an outdated database
+	// the current schema may reference columns that do not exist yet
+	// (e.g. an index on a column added in this version), and the
+	// database is about to be dropped anyway.
+	ver, err := s.storedSchemaVersion()
 	if err != nil {
 		db.Close()
 		return nil, err
 	}
-	switch {
-	case ver == 0: // fresh database
-		if err := s.setMeta("schema_version", strconv.Itoa(schemaVersion)); err != nil {
-			db.Close()
-			return nil, err
-		}
-		if err := s.setMeta("project_root", projectRoot); err != nil {
-			db.Close()
-			return nil, err
-		}
-	case ver != schemaVersion:
+	if ver != 0 && ver != schemaVersion {
 		db.Close()
 		if !retry {
 			return nil, fmt.Errorf("store: schema version %d after rebuild, want %d", ver, schemaVersion)
@@ -219,7 +212,34 @@ func open(path, projectRoot string, retry bool) (*Store, error) {
 		}
 		return open(path, projectRoot, false)
 	}
+	if _, err := db.Exec(schema); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("store: init schema: %w", err)
+	}
+	if ver == 0 { // fresh database
+		if err := s.setMeta("schema_version", strconv.Itoa(schemaVersion)); err != nil {
+			db.Close()
+			return nil, err
+		}
+		if err := s.setMeta("project_root", projectRoot); err != nil {
+			db.Close()
+			return nil, err
+		}
+	}
 	return s, nil
+}
+
+// storedSchemaVersion reads the schema version of an existing database;
+// 0 means a fresh file (no meta table yet).
+func (s *Store) storedSchemaVersion() (int, error) {
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'meta'`).Scan(&n); err != nil {
+		return 0, err
+	}
+	if n == 0 {
+		return 0, nil
+	}
+	return s.metaInt("schema_version")
 }
 
 func (s *Store) Close() error { return s.db.Close() }
@@ -532,33 +552,34 @@ type ExtEdge struct {
 	Line int    `json:"line,omitempty"`
 }
 
-// ReplaceExtEdges swaps the whole enrichment edge set of one source.
-func (s *Store) ReplaceExtEdges(source string, rows []ExtEdge) error {
+// ReplaceExtEdges swaps the whole enrichment edge set of one origin
+// (exchange file); source labels the edges in query output.
+func (s *Store) ReplaceExtEdges(origin, source string, rows []ExtEdge) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`DELETE FROM ext_edges WHERE source = ?`, source); err != nil {
+	if _, err := tx.Exec(`DELETE FROM ext_edges WHERE origin = ?`, origin); err != nil {
 		return err
 	}
-	st, err := tx.Prepare(`INSERT INTO ext_edges (source, from_fqn, kind, to_fqn, file, line)
-		VALUES (?, ?, ?, ?, ?, ?)`)
+	st, err := tx.Prepare(`INSERT INTO ext_edges (origin, source, from_fqn, kind, to_fqn, file, line)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
 	for _, r := range rows {
-		if _, err := st.Exec(source, r.From, r.Kind, r.To, r.File, r.Line); err != nil {
+		if _, err := st.Exec(origin, source, r.From, r.Kind, r.To, r.File, r.Line); err != nil {
 			return err
 		}
 	}
 	return tx.Commit()
 }
 
-// ImportedEnrichSources lists enrichment sources that currently have
-// edges in the store.
-func (s *Store) ImportedEnrichSources() ([]string, error) {
-	rows, err := s.db.Query(`SELECT DISTINCT source FROM ext_edges`)
+// ImportedEnrichOrigins lists exchange files (root-relative paths)
+// whose edges are currently in the store.
+func (s *Store) ImportedEnrichOrigins() ([]string, error) {
+	rows, err := s.db.Query(`SELECT DISTINCT origin FROM ext_edges`)
 	if err != nil {
 		return nil, err
 	}

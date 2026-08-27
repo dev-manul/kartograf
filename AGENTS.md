@@ -67,10 +67,14 @@ that is intentional, add `-tags sqlite_fts5` or use make.
   `kartograf.edge` through `--error-format=json` — do NOT switch to a
   side-channel output file: PHPStan's result cache skips unchanged
   files and would silently drop their edges.
-- **Enrichment lifecycle**: `.kartograf/enrich.<source>.jsonl` at the
-  project root is the source of truth; `ext_edges` are replaced
-  wholesale per source on import, auto-imported by index/serve on
-  mtime change, and dropped when the file is deleted.
+- **Enrichment lifecycle**: `.kartograf/enrich.<source>.jsonl` is the
+  source of truth — at the root and in every nested project directory
+  (`enrich.Discover` walks the tree past .git/vendor/dot-dirs/excludes).
+  `ext_edges` are keyed by `origin` (root-relative path of the exchange
+  file) and replaced wholesale per origin on import, auto-imported by
+  index/serve on mtime change, and dropped when the file is deleted.
+  Tool-reported paths resolve inside the owning project first
+  (`Exchange.Prefix`), then root-relative, then by longest suffix.
 - **TS specifics**: JSX component renders are `calls` edges with a
   `()` target so they join function-component FQNs; unqualified names
   resolve only through imports or file-local declarations (JS scoping
