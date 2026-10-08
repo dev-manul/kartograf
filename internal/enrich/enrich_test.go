@@ -235,3 +235,25 @@ func TestAutoImportNestedProjects(t *testing.T) {
 		t.Fatalf("after delete: %v", got)
 	}
 }
+
+func TestImportRecordsCommit(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, ".kartograf", "enrich.phpstan.jsonl")
+	edges := []store.ExtEdge{{From: `App\Foo::a()`, Kind: "calls", To: `App\Bar::b()`, File: "src/Foo.php", Line: 3}}
+	if err := WriteFileAt(path, "abc123def456", edges); err != nil {
+		t.Fatal(err)
+	}
+	s, err := store.Open(filepath.Join(t.TempDir(), "index.db"), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	n, err := ImportFile(s, root, "phpstan", path)
+	if err != nil || n != 1 {
+		t.Fatalf("import n=%d err=%v", n, err)
+	}
+	stamp, err := s.Meta(store.EnrichCommitKey(".kartograf/enrich.phpstan.jsonl"))
+	if err != nil || stamp != "abc123def456" {
+		t.Fatalf("stamp = %q err=%v", stamp, err)
+	}
+}

@@ -235,7 +235,9 @@ run — replace semantics, no merging.
 Commit the JSONL to share resolved call graphs with the whole team
 (and CI agents), or gitignore `.kartograf/` and re-run `enrich` after
 big changes — both work, `index`/`serve` auto-import on file change
-either way.
+either way. The file starts with the commit it was built from. Graph
+tools then say when the checkout has moved on, so a call list is not
+silently from another revision.
 
 ### Performance expectations
 

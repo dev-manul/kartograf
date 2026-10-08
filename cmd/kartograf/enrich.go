@@ -65,7 +65,7 @@ func newEnrichGoCmd() *cobra.Command {
 				return err
 			}
 			out := enrich.FilePath(absRoot, "go-types")
-			if err := enrich.WriteFile(out, edges); err != nil {
+			if err := enrich.WriteFileAt(out, enrich.HeadCommit(absRoot), edges); err != nil {
 				return err
 			}
 			n, err := enrich.ImportFile(s, absRoot, "go-types", out)
@@ -130,7 +130,7 @@ KARTOGRAF_EDGES=<path> and the generated config, then import with
 				if err != nil {
 					return err
 				}
-				if err := enrich.WriteFile(out, edges); err != nil {
+				if err := enrich.WriteFileAt(out, enrich.HeadCommit(absRoot), edges); err != nil {
 					return err
 				}
 			} else if !skipRun {
@@ -145,7 +145,7 @@ KARTOGRAF_EDGES=<path> and the generated config, then import with
 				if err != nil {
 					return err
 				}
-				if err := enrich.WriteFile(out, edges); err != nil {
+				if err := enrich.WriteFileAt(out, enrich.HeadCommit(absRoot), edges); err != nil {
 					return err
 				}
 			}

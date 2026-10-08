@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -73,6 +74,20 @@ func exchangeFor(root, source, path string) Exchange {
 
 // WriteFile dumps edges as JSONL (replacing the previous file).
 func WriteFile(path string, edges []store.ExtEdge) error {
+	return WriteFileAt(path, "", edges)
+}
+
+// enrichStamp is the first line of an exchange file when the commit is
+// known. Importers that do not understand it skip the line because it
+// has no from/to.
+type enrichStamp struct {
+	Kartograf string `json:"kartograf"`
+	Commit    string `json:"commit,omitempty"`
+}
+
+// WriteFileAt dumps edges as JSONL. commit, when set, is written as a
+// header so a later checkout can tell the graph is from another commit.
+func WriteFileAt(path, commit string, edges []store.ExtEdge) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
@@ -83,12 +98,26 @@ func WriteFile(path string, edges []store.ExtEdge) error {
 	defer f.Close()
 	w := bufio.NewWriter(f)
 	enc := json.NewEncoder(w)
+	if commit != "" {
+		if err := enc.Encode(enrichStamp{Kartograf: "enrich", Commit: commit}); err != nil {
+			return err
+		}
+	}
 	for _, e := range edges {
 		if err := enc.Encode(e); err != nil {
 			return err
 		}
 	}
 	return w.Flush()
+}
+
+// HeadCommit returns the checkout's HEAD, or "" when it is not a git repo.
+func HeadCommit(root string) string {
+	out, err := exec.Command("git", "-C", root, "rev-parse", "HEAD").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 // ImportFile loads a JSONL exchange file into the store, replacing all
@@ -117,6 +146,7 @@ func Import(s *store.Store, root string, x Exchange) (int, error) {
 
 	var edges []store.ExtEdge
 	seen := map[store.ExtEdge]bool{}
+	commit := ""
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 1<<20), 1<<20)
 	for sc.Scan() {
@@ -124,10 +154,19 @@ func Import(s *store.Store, root string, x Exchange) (int, error) {
 		if line == "" {
 			continue
 		}
-		var e store.ExtEdge
-		if err := json.Unmarshal([]byte(line), &e); err != nil {
+		var probe struct {
+			store.ExtEdge
+			Kartograf string `json:"kartograf"`
+			Commit    string `json:"commit"`
+		}
+		if err := json.Unmarshal([]byte(line), &probe); err != nil {
 			return 0, fmt.Errorf("%s: bad line %q: %w", x.Path, line[:min(len(line), 80)], err)
 		}
+		if probe.Kartograf == "enrich" {
+			commit = probe.Commit
+			continue
+		}
+		e := probe.ExtEdge
 		if e.From == "" && e.To == "" {
 			continue
 		}
@@ -146,6 +185,7 @@ func Import(s *store.Store, root string, x Exchange) (int, error) {
 	if err := s.ReplaceExtEdges(x.Origin, x.Source, edges); err != nil {
 		return 0, err
 	}
+	_ = s.SetMeta(store.EnrichCommitKey(x.Origin), commit)
 	// Record the imported version only when path normalization had an
 	// index to work against; an import into a fresh/empty index gets
 	// retried by AutoImport after the first real indexing run.

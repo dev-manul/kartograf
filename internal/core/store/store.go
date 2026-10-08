@@ -646,6 +646,10 @@ func (s *Store) Meta(key string) (string, error) {
 // SetMeta stores an arbitrary metadata value.
 func (s *Store) SetMeta(key, value string) error { return s.setMeta(key, value) }
 
+// EnrichCommitKey is the meta key holding the git commit an exchange
+// file was built from.
+func EnrichCommitKey(origin string) string { return "enrich_commit_" + origin }
+
 // IndexedPaths returns the set of indexed file paths (for mapping
 // external tool output paths onto the index).
 func (s *Store) IndexedPaths() (map[string]bool, error) {
