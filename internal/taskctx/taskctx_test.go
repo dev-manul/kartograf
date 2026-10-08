@@ -306,6 +306,68 @@ func TestChangedFiles(t *testing.T) {
 	}
 }
 
+func TestFindTask(t *testing.T) {
+	root := t.TempDir()
+	pay := filepath.Join(root, "payments")
+	auth := filepath.Join(root, "auth")
+	initAt(t, pay)
+	initAt(t, auth)
+	runGit(t, pay, "checkout", "-b", "feature/PAY-123-report")
+	if err := os.WriteFile(filepath.Join(pay, ".kartograf.yml"), []byte("task:\n  branch: \"feature/{id}\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Put(pay, "feature/PAY-123-report", "goal: fix the report\n"); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, auth, "checkout", "-b", "bugfix/PAY-999")
+
+	hits, err := FindTask(root, "PAY-123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 1 || hits[0].Repo != "payments" || hits[0].Branch != "feature/PAY-123-report" || !hits[0].HasNote {
+		t.Fatalf("hits = %+v", hits)
+	}
+	if hits[0].Preview != "goal: fix the report" {
+		t.Fatalf("preview = %q", hits[0].Preview)
+	}
+	hits, err = FindTask(root, "pay-999")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 1 || hits[0].Repo != "auth" || hits[0].HasNote {
+		t.Fatalf("hits = %+v", hits)
+	}
+	if _, err := FindTask(root, "  "); err == nil {
+		t.Fatal("empty id")
+	}
+	got, err := Repo(root, "payments")
+	if err != nil || got != pay {
+		t.Fatalf("Repo = %q %v", got, err)
+	}
+	if _, err := Repo(root, "../secrets"); err == nil {
+		t.Fatal("escape")
+	}
+	hits, err = FindTask(root, "NOPE")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 0 {
+		t.Fatalf("hits = %+v", hits)
+	}
+}
+
+func initAt(t *testing.T, root string) {
+	t.Helper()
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, root, "init", "-b", "main")
+	runGit(t, root, "config", "user.email", "kartograf@example.com")
+	runGit(t, root, "config", "user.name", "kartograf")
+	runGit(t, root, "commit", "--allow-empty", "-m", "init")
+}
+
 func TestHookTextListsOtherBranches(t *testing.T) {
 	root := initRepo(t)
 	if _, err := Put(root, "feature/old", "goal: payments\nstatus: shipped the handler\n"); err != nil {

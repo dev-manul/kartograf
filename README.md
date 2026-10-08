@@ -113,6 +113,7 @@ built once after the load), warm run ~1.5s.
 | `get_task_context` | Handoff note for a branch (skip when `<kartograf_task>` for it is already in the chat) |
 | `put_task_context` | Write that handoff when work pauses, so a later chat can resume it (4 KiB; a blank body deletes it) |
 | `list_task_contexts` | Other branches that have a handoff |
+| `find_task` | Branches whose names match a task id, including nested repositories |
 | `branch_changes` | Files and symbols a branch changed since the default branch, for work that has no handoff |
 
 Edges with `resolved=false` are heuristic (calls via `parent::`,
@@ -154,7 +155,11 @@ Call `get_task_context` only when no `<kartograf_task>` block for that
 branch is already in the conversation. Follow-ups often arrive on a
 new branch: `list_task_contexts` (and the `<kartograf_tasks>` list the
 Claude Code hook adds on the first prompt of a session) names the
-older notes. A detached HEAD is stored as `HEAD@<sha>`. The Claude
+older notes. When the user names a task id instead of a branch,
+`find_task` locates the branch; a nested repository comes back as
+`repo` and is passed through to the other task tools. Each repository
+can set `task.branch` in `.kartograf.yml` (see below); otherwise the
+branch name only has to contain the id. A detached HEAD is stored as `HEAD@<sha>`. The Claude
 Code hook and, after `kartograf install cursor`, Cursor's
 beforeSubmitPrompt hook inject the current branch's note once per
 session and do not repeat it.
@@ -236,6 +241,9 @@ grep wins on raw text; kartograf wins on graph semantics:
 include: []        # directories to index (default: the whole root)
 exclude: []        # extra gitignore-style patterns
 vendor: index      # index (default, flagged as vendor) | skip
+task:
+  branch: "feature/{id}-"   # optional; how a task id sits in branch names.
+                             # empty = the branch name contains the id
 ```
 
 The project's `.gitignore` is respected; vendor/node_modules are

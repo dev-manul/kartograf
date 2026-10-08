@@ -42,7 +42,9 @@ that is intentional, add `-tags sqlite_fts5` or use make.
   JSONL import.
 - `internal/mcpserver` — MCP tool definitions.
 - `internal/taskctx` — per-branch working notes in the git common
-  dir, outside the index database.
+  dir, outside the index database. `find_task` walks nested git
+  repos; `.kartograf.yml` `task.branch` is an optional `{id}` template
+  (empty means the branch name contains the id).
 
 ## Hard-won rules (do not relearn these the hard way)
 

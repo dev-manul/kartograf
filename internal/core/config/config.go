@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -27,6 +28,18 @@ type Config struct {
 	// "index" (default) indexes them flagged as vendor code,
 	// "skip" leaves them out entirely.
 	Vendor string `yaml:"vendor"`
+	// Task describes how a task id shows up in git branch names.
+	// Used by find_task. An empty Branch matches any branch whose
+	// name contains the id.
+	Task Task `yaml:"task"`
+}
+
+// Task is the optional branch-name rule for one repository.
+type Task struct {
+	// Branch is a template containing "{id}", for example
+	// "feature/{id}-". The id the user named replaces "{id}", and a
+	// branch matches when its name contains the result.
+	Branch string `yaml:"branch"`
 }
 
 // VendorDirNames are directory basenames treated as dependency roots.
@@ -58,6 +71,9 @@ func Load(root string) (Config, error) {
 	}
 	if cfg.Vendor != "index" && cfg.Vendor != "skip" {
 		return cfg, fmt.Errorf("%s: vendor must be \"index\" or \"skip\", got %q", FileName, cfg.Vendor)
+	}
+	if cfg.Task.Branch != "" && !strings.Contains(cfg.Task.Branch, "{id}") {
+		return cfg, fmt.Errorf("%s: task.branch must contain {id}, got %q", FileName, cfg.Task.Branch)
 	}
 	return cfg, nil
 }
