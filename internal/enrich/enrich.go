@@ -320,6 +320,7 @@ func exchangesIn(root, dir string) []Exchange {
 // been deleted. With no files present the layer is simply inactive —
 // the AST edges work on their own.
 func AutoImport(s *store.Store, root string, cfg config.Config, logf func(format string, args ...any)) error {
+	MaybeFetch(root, cfg, logf)
 	found, err := Discover(root, cfg)
 	if err != nil {
 		return err
