@@ -9,6 +9,8 @@ package taskctx
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
@@ -19,11 +21,10 @@ import (
 	"unicode/utf8"
 )
 
-// MaxBody is the maximum stored note size in bytes.
-const MaxBody = 16 << 10
-
-// hookBytes is how much of a note the Claude Code prompt hook injects.
-const hookBytes = 2048
+// MaxBody is the maximum stored note size in bytes. The note is a few
+// short lines, so writing it back is a small tool call rather than a
+// rewritten document.
+const MaxBody = 800
 
 // now is replaced in tests so list order does not depend on the clock.
 var now = time.Now
@@ -161,10 +162,21 @@ func List(root string) ([]Summary, error) {
 	return out, nil
 }
 
-// HookText is the Claude Code prompt-hook block for the current branch.
-// It is empty when there is no note or git is unavailable: a hook must
-// stay silent rather than fail the prompt.
-func HookText(root string) string {
+// HookText is the prompt-hook block for the current branch. sessionID
+// scopes the injection to one chat: the note is shown on the first
+// prompt of that session and not again, because a repeated block would
+// stay in the transcript and be paid for on every later turn. An empty
+// sessionID injects nothing. The result is empty when there is no note
+// or git is unavailable — a hook must stay silent rather than fail the
+// prompt.
+func HookText(root, sessionID string) string {
+	if sessionID == "" || alreadySeen(root, sessionID) {
+		return ""
+	}
+	// Mark before returning so a session that starts with no note does
+	// not receive the note again after the agent writes it: that write
+	// is already in the transcript as the tool result.
+	remember(root, sessionID)
 	branch, err := CurrentBranch(root)
 	if err != nil {
 		return ""
@@ -173,19 +185,68 @@ func HookText(root string) string {
 	if err != nil || strings.TrimSpace(note.Body) == "" {
 		return ""
 	}
-	body, truncated := truncate(note.Body, hookBytes)
+	body, truncated := truncate(note.Body, MaxBody)
 	var b strings.Builder
-	fmt.Fprintf(&b, "<kartograf_task_context branch=%q note=%q>\n", note.Branch,
-		"working notes for this git branch; update them with put_task_context when the plan changes")
+	fmt.Fprintf(&b, "<kartograf_task branch=%q>\n", note.Branch)
 	b.WriteString(body)
 	if !strings.HasSuffix(body, "\n") {
 		b.WriteByte('\n')
 	}
 	if truncated {
-		b.WriteString("… truncated; full note via get_task_context\n")
+		b.WriteString("…\n")
 	}
-	b.WriteString("</kartograf_task_context>\n")
+	b.WriteString("</kartograf_task>\n")
 	return b.String()
+}
+
+func alreadySeen(root, sessionID string) bool {
+	path, err := seenPath(root, sessionID)
+	if err != nil {
+		return false
+	}
+	_, err = os.Stat(path)
+	return err == nil
+}
+
+func remember(root, sessionID string) {
+	path, err := seenPath(root, sessionID)
+	if err != nil {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return
+	}
+	_ = os.WriteFile(path, nil, 0o644)
+}
+
+func seenPath(root, sessionID string) (string, error) {
+	dir, err := contextDir(root)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, ".seen", sessionFile(sessionID)), nil
+}
+
+func sessionFile(sessionID string) string {
+	if safeSession(sessionID) {
+		return sessionID
+	}
+	sum := sha256.Sum256([]byte(sessionID))
+	return hex.EncodeToString(sum[:8])
+}
+
+func safeSession(s string) bool {
+	if s == "" || s == "." || s == ".." || len(s) > 80 {
+		return false
+	}
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_', r == '.':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func resolveBranch(root, branch string) (string, error) {

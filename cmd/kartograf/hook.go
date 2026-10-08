@@ -16,11 +16,11 @@ import (
 	"github.com/dev-manul/kartograf/internal/taskctx"
 )
 
-// hook is a Claude Code UserPromptSubmit hook. It prints the working
-// note for the current git branch when one exists, then looks up
-// identifier-looking words from the prompt in the kartograf index and,
-// on a match, prints a small context block that nudges the agent to
-// query the code graph instead of grepping.
+// hook is a Claude Code UserPromptSubmit hook. On the first prompt of
+// a session it prints the working note for the current git branch,
+// then looks up identifier-looking words from the prompt in the
+// kartograf index and, on a match, prints a small context block that
+// nudges the agent to query the code graph instead of grepping.
 //
 // Contract: whatever this prints to stdout is injected into the
 // conversation as context. It must be fast and silent when it has
@@ -47,8 +47,19 @@ func runHook(root string) {
 	if err != nil {
 		return
 	}
-	if text := taskctx.HookText(absRoot); text != "" {
+	var in struct {
+		Prompt    string `json:"prompt"`
+		SessionID string `json:"session_id"`
+	}
+	raw, err := io.ReadAll(io.LimitReader(os.Stdin, 1<<20))
+	if err == nil {
+		_ = json.Unmarshal(raw, &in)
+	}
+	if text := taskctx.HookText(absRoot, in.SessionID); text != "" {
 		fmt.Print(text)
+	}
+	if in.Prompt == "" {
+		return
 	}
 
 	dbPath, err := store.DefaultPath(absRoot)
@@ -59,13 +70,6 @@ func runHook(root string) {
 		return // no index yet — never create one from a hook
 	}
 
-	var in struct {
-		Prompt string `json:"prompt"`
-	}
-	raw, err := io.ReadAll(io.LimitReader(os.Stdin, 1<<20))
-	if err != nil || json.Unmarshal(raw, &in) != nil || in.Prompt == "" {
-		return
-	}
 	names := identifierCandidates(in.Prompt)
 	if len(names) == 0 {
 		return

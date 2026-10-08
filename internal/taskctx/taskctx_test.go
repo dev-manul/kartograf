@@ -181,7 +181,7 @@ func TestNotAGitRepo(t *testing.T) {
 	if _, err := List(dir); err == nil {
 		t.Fatal("expected error")
 	}
-	if HookText(dir) != "" {
+	if HookText(dir, "sess") != "" {
 		t.Fatal("hook text on a non-repo")
 	}
 }
@@ -212,20 +212,27 @@ func TestListOrdersByUpdatedAt(t *testing.T) {
 	}
 }
 
-func TestHookTextTruncates(t *testing.T) {
+func TestHookTextOncePerSession(t *testing.T) {
 	root := initRepo(t)
-	if HookText(root) != "" {
+	if HookText(root, "") != "" {
+		t.Fatal("empty session id must stay quiet")
+	}
+	if HookText(root, "sess-a") != "" {
 		t.Fatal("expected silence with no note")
 	}
-	body := strings.Repeat("x", hookBytes+50)
-	if _, err := Put(root, "", body); err != nil {
+	if _, err := Put(root, "", "goal: pay\nstatus: halfway\nnext: handler\n"); err != nil {
 		t.Fatal(err)
 	}
-	text := HookText(root)
-	if !strings.Contains(text, "kartograf_task_context") || !strings.Contains(text, "… truncated; full note via get_task_context") {
+	// sess-a already ran, so the note the agent writes stays in the
+	// tool result and is not injected again.
+	if HookText(root, "sess-a") != "" {
+		t.Fatal("session was injected twice")
+	}
+	text := HookText(root, "sess-b")
+	if !strings.Contains(text, "goal: pay") || !strings.Contains(text, "</kartograf_task>") {
 		t.Fatalf("hook text:\n%s", text)
 	}
-	if !strings.Contains(text, strings.Repeat("x", hookBytes)) || strings.Contains(text, strings.Repeat("x", hookBytes+1)) {
-		t.Fatalf("hook excerpt was not cut to %d bytes", hookBytes)
+	if HookText(root, "sess-b") != "" {
+		t.Fatal("same session injected twice")
 	}
 }
