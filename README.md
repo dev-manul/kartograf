@@ -36,10 +36,10 @@ adapters are implemented.
   via recursive CTEs.
 - Optional enrichment layer (`kartograf enrich`): full type inference
   on top of the file-local AST heuristics.
-- Per-branch working note (`get_task_context` / `put_task_context`):
-  a few short lines in the git common dir. The agent writes it once,
-  at the end of a turn, only when the goal, a decision, or the next
-  step changed.
+- Per-branch handoff note (`get_task_context` / `put_task_context`):
+  what was done, key files, decisions, and what is left, stored in the
+  git common dir. The agent writes it when work pauses, so a new chat
+  days later can resume the task. Up to 4 KiB.
 
 ## Quick install (let your AI agent do it)
 
@@ -110,9 +110,9 @@ built once after the load), warm run ~1.5s.
 | `explore` | One-shot overview: declaration + source, callers, callees, hierarchy, reference count |
 | `impact` | Blast radius: transitive callers by depth + affected test files |
 | `search_code` | Full-text search over file contents: string literals, SQL, config keys |
-| `get_task_context` | Branch note; skip when `<kartograf_task>` is already in the chat |
-| `put_task_context` | Replace that note once, at the end of a turn, only if the goal, a decision, or the next step changed (800 bytes; a blank body deletes it) |
-| `list_task_contexts` | Other branches that have a note |
+| `get_task_context` | Handoff note for a branch (skip when `<kartograf_task>` for it is already in the chat) |
+| `put_task_context` | Write that handoff when work pauses, so a later chat can resume it (4 KiB; a blank body deletes it) |
+| `list_task_contexts` | Other branches that have a handoff |
 
 Edges with `resolved=false` are heuristic (calls via `parent::`,
 inferred receiver types, global function fallback); exact edges follow
@@ -136,20 +136,25 @@ missing.
 
 ## Task context
 
-Working notes survive a new chat and a branch switch. One markdown
-note per git branch is stored under the repository's common git
-directory (`<git-common-dir>/kartograf/context/`), outside the working
-tree and outside the index database, so `git checkout` and
-`index --rebuild` leave the notes in place. Notes stay local to the
-clone; linked worktrees of the same repository share them.
+A handoff note per git branch lets a new chat resume work days later:
+what the task was, what changed (key files and symbols), which
+decisions were made and why, what is left, and how to verify. The
+agent writes it when work pauses, not on every turn. One note is at
+most 4 KiB.
 
-Call `get_task_context` only when no `<kartograf_task>` block is already
-in the conversation, and `put_task_context` once at the end of a turn
-when the goal, a decision, or the next step changed. The note is a few
-short lines, 800 bytes at most. Questions and lookups do not write it.
-`list_task_contexts` finds notes for other branches. A detached HEAD
-is stored as `HEAD@<sha>`. The Claude Code prompt hook injects the
-note on the first prompt of a session and not again.
+Notes live under the repository's common git directory
+(`<git-common-dir>/kartograf/context/`), outside the working tree and
+outside the index database, so `git checkout` and `index --rebuild`
+leave them in place. Notes stay local to the clone; linked worktrees
+of the same repository share them.
+
+Call `get_task_context` only when no `<kartograf_task>` block for that
+branch is already in the conversation. Follow-ups often arrive on a
+new branch: `list_task_contexts` (and the `<kartograf_tasks>` list the
+Claude Code hook adds on the first prompt of a session) names the
+older notes. A detached HEAD is stored as `HEAD@<sha>`. The hook
+injects the current branch's note once per session and does not repeat
+it.
 
 ## Enrichment layer
 

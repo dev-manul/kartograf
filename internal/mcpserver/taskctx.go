@@ -10,7 +10,7 @@ import (
 	"github.com/dev-manul/kartograf/internal/taskctx"
 )
 
-const taskContextInstructions = "If a kartograf_task block is already in the conversation, do not call get_task_context. At the end of a turn, call put_task_context only when the goal, a decision, or the next step changed. Keep the note to a few short lines (goal, status, next, decisions). Skip questions and lookups, do not mention the save in the reply, and do not spend a separate turn on it."
+const taskContextInstructions = "Task notes are a handoff so a new chat can resume the work days later. When you pause or finish work on a branch, call put_task_context once with: goal, what changed (key files and symbols), decisions and why, what is left, how to verify. Skip the call when that handoff would be unchanged, and do not mention it in the reply. If a kartograf_task block for this branch is already present, do not call get_task_context. If the user brings follow-ups and the current branch has no note, read the matching branch from kartograf_tasks or list_task_contexts before exploring the code."
 
 type taskContextIn struct {
 	Branch string `json:"branch,omitempty" jsonschema:"git branch; omit to use the branch checked out in the project root"`
@@ -18,7 +18,7 @@ type taskContextIn struct {
 
 type putTaskContextIn struct {
 	Branch string `json:"branch,omitempty" jsonschema:"git branch; omit to use the branch checked out in the project root"`
-	Body   string `json:"body" jsonschema:"replacement note, a few short lines (goal, status, next, decisions), 800 bytes max. A blank body deletes the note"`
+	Body   string `json:"body" jsonschema:"handoff for a later chat: goal, what changed (files and symbols), decisions and why, what is left, how to verify. A blank body deletes the note"`
 }
 
 type taskContextOut struct {
@@ -42,9 +42,10 @@ type listTaskContextOut struct {
 func registerTaskContext(s *mcp.Server, root string) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "get_task_context",
-		Description: "Load the working note for a git branch (current checkout when branch is omitted). " +
-			"Skip this call when a kartograf_task block is already in the conversation. " +
-			"Returns branch, updatedAt, and body (empty when no note is saved yet).",
+		Description: "Load the handoff note for a git branch (current checkout when branch is omitted): " +
+			"what was done, key files and symbols, decisions, and what is left. " +
+			"Skip this call when a kartograf_task block for that branch is already in the conversation. " +
+			"Pass branch to open a note from another branch listed in kartograf_tasks.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in taskContextIn) (*mcp.CallToolResult, taskContextOut, error) {
 		note, err := taskctx.Get(root, in.Branch)
 		if err != nil {
@@ -55,10 +56,11 @@ func registerTaskContext(s *mcp.Server, root string) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "put_task_context",
-		Description: "Replace the working note for a git branch (current checkout when branch is omitted). " +
-			"Call at most once, at the end of a turn, and only when the goal, a decision, or the next step changed. " +
-			"Skip the call otherwise. Do not mention it in the reply. " +
-			fmt.Sprintf("A few short lines, %d bytes max. A blank body deletes the note.", taskctx.MaxBody),
+		Description: "Replace the handoff note for a git branch (current checkout when branch is omitted). " +
+			"Call once when you pause or finish the work, so a new chat can resume it days later. " +
+			"Cover goal, what changed (key files and symbols), decisions and why, what is left, and how to verify. " +
+			"Skip the call when the handoff would be unchanged. Do not mention it in the reply. " +
+			fmt.Sprintf("%d bytes max. A blank body deletes the note.", taskctx.MaxBody),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in putTaskContextIn) (*mcp.CallToolResult, taskContextOut, error) {
 		note, err := taskctx.Put(root, in.Branch, in.Body)
 		if err != nil {
@@ -69,8 +71,8 @@ func registerTaskContext(s *mcp.Server, root string) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "list_task_contexts",
-		Description: "List branches that have a saved note: name, updatedAt, and the first line. " +
-			"Use this for a branch other than the one checked out.",
+		Description: "List branches that have a handoff note: name, updatedAt, and the first line. " +
+			"Use this when follow-up work arrives and the current branch has no note.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in listTaskContextIn) (*mcp.CallToolResult, listTaskContextOut, error) {
 		list, err := taskctx.List(root)
 		if err != nil {

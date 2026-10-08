@@ -21,10 +21,11 @@ import (
 	"unicode/utf8"
 )
 
-// MaxBody is the maximum stored note size in bytes. The note is a few
-// short lines, so writing it back is a small tool call rather than a
-// rewritten document.
-const MaxBody = 800
+// MaxBody is the maximum stored note size in bytes. A note is a handoff
+// for a later chat (what was done, why, what is left), written once
+// when work pauses. 4 KiB is enough for that in Russian, where each
+// letter is two bytes, and small enough to inject once per session.
+const MaxBody = 4 << 10
 
 // now is replaced in tests so list order does not depend on the clock.
 var now = time.Now
@@ -163,12 +164,13 @@ func List(root string) ([]Summary, error) {
 }
 
 // HookText is the prompt-hook block for the current branch. sessionID
-// scopes the injection to one chat: the note is shown on the first
+// scopes the injection to one chat: the handoff is shown on the first
 // prompt of that session and not again, because a repeated block would
 // stay in the transcript and be paid for on every later turn. An empty
-// sessionID injects nothing. The result is empty when there is no note
-// or git is unavailable — a hook must stay silent rather than fail the
-// prompt.
+// sessionID injects nothing. Other branches' handoffs are listed by
+// name so follow-up work on a new branch can find last week's note.
+// The result is empty when there is nothing saved or git is
+// unavailable — a hook must stay silent rather than fail the prompt.
 func HookText(root, sessionID string) string {
 	if sessionID == "" || alreadySeen(root, sessionID) {
 		return ""
@@ -181,13 +183,37 @@ func HookText(root, sessionID string) string {
 	if err != nil {
 		return ""
 	}
-	note, err := Get(root, branch)
-	if err != nil || strings.TrimSpace(note.Body) == "" {
-		return ""
-	}
-	body, truncated := truncate(note.Body, MaxBody)
 	var b strings.Builder
-	fmt.Fprintf(&b, "<kartograf_task branch=%q>\n", note.Branch)
+	if note, err := Get(root, branch); err == nil && strings.TrimSpace(note.Body) != "" {
+		writeNote(&b, note)
+	}
+	// A follow-up a week later often lands on another branch. List the
+	// other handoffs so the new chat can open the one that matches.
+	if others, err := List(root); err == nil {
+		n := 0
+		for _, s := range others {
+			if s.Branch == branch {
+				continue
+			}
+			if n == 0 {
+				b.WriteString("<kartograf_tasks>\n")
+			}
+			fmt.Fprintf(&b, "%s (%s): %s\n", s.Branch, s.UpdatedAt.UTC().Format("2006-01-02"), s.Preview)
+			n++
+			if n == 5 {
+				break
+			}
+		}
+		if n > 0 {
+			b.WriteString("</kartograf_tasks>\n")
+		}
+	}
+	return b.String()
+}
+
+func writeNote(b *strings.Builder, note Note) {
+	body, truncated := truncate(note.Body, MaxBody)
+	fmt.Fprintf(b, "<kartograf_task branch=%q>\n", note.Branch)
 	b.WriteString(body)
 	if !strings.HasSuffix(body, "\n") {
 		b.WriteByte('\n')
@@ -196,7 +222,6 @@ func HookText(root, sessionID string) string {
 		b.WriteString("…\n")
 	}
 	b.WriteString("</kartograf_task>\n")
-	return b.String()
 }
 
 func alreadySeen(root, sessionID string) bool {

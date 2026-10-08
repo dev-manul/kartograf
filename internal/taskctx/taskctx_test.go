@@ -236,3 +236,17 @@ func TestHookTextOncePerSession(t *testing.T) {
 		t.Fatal("same session injected twice")
 	}
 }
+
+func TestHookTextListsOtherBranches(t *testing.T) {
+	root := initRepo(t)
+	if _, err := Put(root, "feature/old", "goal: payments\nstatus: shipped the handler\n"); err != nil {
+		t.Fatal(err)
+	}
+	text := HookText(root, "sess")
+	if !strings.Contains(text, "feature/old") || !strings.Contains(text, "payments") || !strings.Contains(text, "kartograf_tasks") {
+		t.Fatalf("hook text:\n%s", text)
+	}
+	if strings.Contains(text, "kartograf_task ") {
+		t.Fatal("current branch has no note and should not get a task block")
+	}
+}
