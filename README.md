@@ -119,8 +119,11 @@ built once after the load), warm run ~1.5s.
 Edges with `resolved=false` are heuristic (calls via `parent::`,
 inferred receiver types, global function fallback); exact edges follow
 the language's name-resolution rules using the file's import map and
-namespace. Every edge carries `source`: `ast` (file-local extraction),
-`phpstan` or `go-types` (enrichment layer).
+namespace. TypeScript `export { Name } from` and `export * from` are
+followed for a few hops, so a call imported through an `index.ts`
+barrel joins the file that defines the name. Every edge carries
+`source`: `ast` (file-local extraction), `phpstan` or `go-types`
+(enrichment layer).
 
 What works without the enrichment layer:
 

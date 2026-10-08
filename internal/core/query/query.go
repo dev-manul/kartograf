@@ -299,20 +299,51 @@ func dedupeEdges(hits []EdgeHit) []EdgeHit {
 }
 
 // References returns all edges pointing at the symbol (any kind).
+// Names that re-export it through a barrel are included; the reexport
+// edges themselves are not.
 func (e *Engine) References(fqn string, limit int, f EdgeFilter) ([]EdgeHit, error) {
+	targets, aliases, err := e.aliasTargets(fqn)
+	if err != nil {
+		return nil, err
+	}
 	cond, condArgs := f.sql()
-	args := append([]any{fqn}, condArgs...)
-	args = append(args, limit)
-	rows, err := e.s.DB().Query(`SELECT `+edgeCols+`
-		WHERE e.to_fqn = ?`+cond+` ORDER BY e.resolved DESC, e.file, e.line LIMIT ?`, args...)
-	if err != nil {
-		return nil, err
+	var hits []EdgeHit
+	for start := 0; start < len(targets); start += 400 {
+		chunk := targets[start:min(start+400, len(targets))]
+		placeholders := strings.Repeat("?, ", len(chunk)-1) + "?"
+		args := make([]any, 0, len(chunk)+len(condArgs))
+		for _, c := range chunk {
+			args = append(args, c)
+		}
+		args = append(args, condArgs...)
+		rows, err := e.s.DB().Query(`SELECT `+edgeCols+`
+			WHERE e.kind != 'reexports' AND e.to_fqn IN (`+placeholders+`)`+cond, args...)
+		if err != nil {
+			return nil, err
+		}
+		part, err := scanEdges(rows)
+		if err != nil {
+			return nil, err
+		}
+		hits = append(hits, part...)
 	}
-	hits, err := scanEdges(rows)
-	if err != nil {
-		return nil, err
+	for i := range hits {
+		applyAlias(&hits[i], fqn, aliases)
 	}
-	return dedupeEdges(hits), nil
+	sort.SliceStable(hits, func(i, j int) bool {
+		if hits[i].Resolved != hits[j].Resolved {
+			return hits[i].Resolved
+		}
+		if hits[i].File != hits[j].File {
+			return hits[i].File < hits[j].File
+		}
+		return hits[i].Line < hits[j].Line
+	})
+	hits = dedupeEdges(hits)
+	if len(hits) > limit {
+		hits = hits[:limit]
+	}
+	return hits, nil
 }
 
 // Callers returns call edges into a callable. For methods, the class
@@ -323,20 +354,48 @@ func (e *Engine) References(fqn string, limit int, f EdgeFilter) ([]EdgeHit, err
 func (e *Engine) Callers(fqn string, limit int, f EdgeFilter) ([]EdgeHit, error) {
 	cond, condArgs := f.sql()
 	class, member, isMethod := methodSplit(fqn)
+	targets, aliases, err := e.aliasTargets(fqn)
+	if err != nil {
+		return nil, err
+	}
 	if !isMethod {
-		args := append([]any{fqn}, condArgs...)
-		args = append(args, limit)
-		rows, err := e.s.DB().Query(`SELECT `+edgeCols+`
-			WHERE e.to_fqn = ? AND e.kind IN ('calls', 'instantiates')`+cond+`
-			ORDER BY e.resolved DESC, e.file, e.line LIMIT ?`, args...)
-		if err != nil {
-			return nil, err
+		var hits []EdgeHit
+		for start := 0; start < len(targets); start += 400 {
+			chunk := targets[start:min(start+400, len(targets))]
+			placeholders := strings.Repeat("?, ", len(chunk)-1) + "?"
+			args := make([]any, 0, len(chunk)+len(condArgs))
+			for _, c := range chunk {
+				args = append(args, c)
+			}
+			args = append(args, condArgs...)
+			rows, err := e.s.DB().Query(`SELECT `+edgeCols+`
+				WHERE e.kind IN ('calls', 'instantiates') AND e.to_fqn IN (`+placeholders+`)`+cond, args...)
+			if err != nil {
+				return nil, err
+			}
+			part, err := scanEdges(rows)
+			if err != nil {
+				return nil, err
+			}
+			hits = append(hits, part...)
 		}
-		hits, err := scanEdges(rows)
-		if err != nil {
-			return nil, err
+		for i := range hits {
+			applyAlias(&hits[i], fqn, aliases)
 		}
-		return dedupeEdges(hits), nil
+		sort.SliceStable(hits, func(i, j int) bool {
+			if hits[i].Resolved != hits[j].Resolved {
+				return hits[i].Resolved
+			}
+			if hits[i].File != hits[j].File {
+				return hits[i].File < hits[j].File
+			}
+			return hits[i].Line < hits[j].Line
+		})
+		hits = dedupeEdges(hits)
+		if len(hits) > limit {
+			hits = hits[:limit]
+		}
+		return hits, nil
 	}
 	// family = the class itself + its ancestors + its descendants.
 	// Deliberately NOT descendants-of-ancestors: siblings sharing a
@@ -351,9 +410,20 @@ func (e *Engine) Callers(fqn string, limit int, f EdgeFilter) ([]EdgeHit, error)
 		return nil, err
 	}
 	sep := memberSep(fqn)
-	candidates := make([]string, 0, len(family))
+	candidates := make([]string, 0, len(family)+len(targets))
+	seenCand := map[string]bool{}
 	for _, f := range family {
-		candidates = append(candidates, f+sep+member)
+		c := f + sep + member
+		if !seenCand[c] {
+			seenCand[c] = true
+			candidates = append(candidates, c)
+		}
+	}
+	for _, t := range targets {
+		if !seenCand[t] {
+			seenCand[t] = true
+			candidates = append(candidates, t)
+		}
 	}
 
 	var hits []EdgeHit
@@ -378,7 +448,13 @@ func (e *Engine) Callers(fqn string, limit int, f EdgeFilter) ([]EdgeHit, error)
 	}
 
 	// Hierarchy-widened matches are heuristic by construction.
+	// A barrel alias is rewritten back to the symbol that was asked
+	// about; a named reexport is exact, a star reexport is not.
 	for i := range hits {
+		if _, ok := aliases[hits[i].To]; ok {
+			applyAlias(&hits[i], fqn, aliases)
+			continue
+		}
 		if hits[i].To != fqn {
 			hits[i].Resolved = false
 		}
@@ -538,6 +614,18 @@ func (e *Engine) Callees(fqn string, limit int, f EdgeFilter) ([]EdgeHit, error)
 	if err != nil {
 		return nil, err
 	}
+	for i := range hits {
+		c, exact, err := e.canonical(hits[i].To)
+		if err != nil {
+			return nil, err
+		}
+		if c != hits[i].To {
+			hits[i].To = c
+			if exact {
+				hits[i].Resolved = true
+			}
+		}
+	}
 	return dedupeEdges(hits), nil
 }
 
@@ -598,8 +686,17 @@ func (e *Engine) SymbolsByNames(names []string, limit int) ([]SymbolHit, error) 
 
 // ReferencesCount counts all edges pointing at a symbol.
 func (e *Engine) ReferencesCount(fqn string) (int, error) {
+	targets, _, err := e.aliasTargets(fqn)
+	if err != nil {
+		return 0, err
+	}
+	placeholders := strings.Repeat("?, ", len(targets)-1) + "?"
+	args := make([]any, len(targets))
+	for i, t := range targets {
+		args[i] = t
+	}
 	var n int
-	err := e.s.DB().QueryRow(`SELECT COUNT(*) FROM all_edges WHERE to_fqn = ?`, fqn).Scan(&n)
+	err = e.s.DB().QueryRow(`SELECT COUNT(*) FROM all_edges WHERE kind != 'reexports' AND to_fqn IN (`+placeholders+`)`, args...).Scan(&n)
 	return n, err
 }
 
@@ -625,6 +722,16 @@ func (e *Engine) Impact(fqn string, maxDepth, perLevel int) (levels []ImpactLeve
 	seen := map[string]bool{fqn: true}
 	testSeen := map[string]bool{}
 	frontier := []string{fqn}
+	if aliases, err := e.aliasesOf(fqn); err != nil {
+		return nil, nil, false, err
+	} else {
+		for a := range aliases {
+			if !seen[a] {
+				seen[a] = true
+				frontier = append(frontier, a)
+			}
+		}
+	}
 
 	for depth := 1; depth <= maxDepth && len(frontier) > 0; depth++ {
 		var level ImpactLevel

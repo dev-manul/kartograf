@@ -2,6 +2,7 @@ package ts
 
 import (
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/dev-manul/kartograf/internal/core/lang"
@@ -124,6 +125,48 @@ func TestTSRefs(t *testing.T) {
 		// <div> is not a component, globals are not resolvable.
 		if key == mod+"#Card() references_type div" {
 			t.Errorf("lowercase JSX element leaked: %s", key)
+		}
+	}
+}
+
+func TestTSReexports(t *testing.T) {
+	src := []byte(`
+export { Button } from './ui/Button';
+export { Text as Label } from './ui/Text';
+export * from './icons';
+export * as icons from './icons';
+export { default as Card } from './Card';
+`)
+	fi, err := New().ExtractFile("packages/ui/index.ts", src, lang.ExtractOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.HasErrors {
+		t.Fatal("parse errors")
+	}
+	got := map[string]bool{}
+	for _, r := range fi.Refs {
+		got[r.From+" "+string(r.Kind)+" "+r.To] = r.Resolved
+	}
+	want := []string{
+		"packages/ui#Button reexports packages/ui/ui/Button#Button",
+		"packages/ui#Label reexports packages/ui/ui/Text#Text",
+		"packages/ui#* reexports packages/ui/icons",
+		"packages/ui#Card reexports packages/ui/Card#default",
+	}
+	for _, w := range want {
+		resolved, ok := got[w]
+		if !ok {
+			t.Errorf("missing %q", w)
+			continue
+		}
+		if !resolved {
+			t.Errorf("%s should be resolved", w)
+		}
+	}
+	for key := range got {
+		if strings.Contains(key, "#icons ") {
+			t.Errorf("namespace reexport leaked: %s", key)
 		}
 	}
 }

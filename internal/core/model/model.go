@@ -30,6 +30,7 @@ const (
 	EdgeInstantiates   EdgeKind = "instantiates"    // new X
 	EdgeReferencesType EdgeKind = "references_type" // type hints, instanceof, ::class, attributes, catch
 	EdgeReferences     EdgeKind = "references"      // constant / static property access
+	EdgeReexports      EdgeKind = "reexports"       // barrel file re-exports another module's name
 )
 
 // Range is a location inside a file. Lines and columns are 1-based.

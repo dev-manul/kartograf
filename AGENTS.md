@@ -82,9 +82,11 @@ that is intentional, add `-tags sqlite_fts5` or use make.
 - **TS specifics**: JSX component renders are `calls` edges with a
   `()` target so they join function-component FQNs; unqualified names
   resolve only through imports or file-local declarations (JS scoping
-  — unknown names are globals and are skipped); imports through barrel
-  files (`index.ts` re-exports) stay heuristic and do not join the
-  graph — a known limitation.
+  — unknown names are globals and are skipped). Barrel re-exports
+  (`export { A } from`, `export * from`) are `reexports` edges
+  (`barrel#*` is a star of the whole module). References, callers,
+  callees and impact follow them a few hops. Vendor files still skip
+  those edges (`SkipRefs`).
 - **Vendor code** is indexed shallow (`SkipRefs`): declarations and
   hierarchy only. Don't emit call edges from vendor files.
 - **Bulk vs incremental writes**: an empty database takes

@@ -170,6 +170,65 @@ func (e *extractor) extractImport(n *tree_sitter.Node) {
 	}
 }
 
+// extractReexports records barrel re-exports.
+//
+//	export { A } from './mod'       barrel#A  -> mod#A
+//	export { A as B } from './mod'  barrel#B  -> mod#A
+//	export * from './mod'           barrel#*  -> mod
+//
+// `export * as ns` is a namespace object, not a per-name reexport,
+// and is left out.
+func (e *extractor) extractReexports(n *tree_sitter.Node) {
+	sourceNode := n.ChildByFieldName("source")
+	if sourceNode == nil {
+		return
+	}
+	spec := strings.Trim(e.text(sourceNode), "`'\"")
+	module := e.resolveModule(spec)
+	resolved := strings.HasPrefix(spec, ".") || module != spec
+	line := nodeRange(n).StartLine
+
+	var clause, ns *tree_sitter.Node
+	for i := uint(0); i < n.NamedChildCount(); i++ {
+		c := n.NamedChild(i)
+		switch c.Kind() {
+		case "export_clause":
+			clause = c
+		case "namespace_export":
+			ns = c
+		}
+	}
+	if clause == nil && ns == nil {
+		e.addRef(model.Ref{
+			From: e.qual("*"), Kind: model.EdgeReexports, To: module,
+			Resolved: resolved, Line: line,
+		})
+		return
+	}
+	if clause == nil {
+		return
+	}
+	for i := uint(0); i < clause.NamedChildCount(); i++ {
+		specNode := clause.NamedChild(i)
+		if specNode.Kind() != "export_specifier" {
+			continue
+		}
+		nameNode := specNode.ChildByFieldName("name")
+		if nameNode == nil {
+			continue
+		}
+		original := e.text(nameNode)
+		exported := original
+		if alias := specNode.ChildByFieldName("alias"); alias != nil {
+			exported = e.text(alias)
+		}
+		e.addRef(model.Ref{
+			From: e.qual(exported), Kind: model.EdgeReexports,
+			To: module + "#" + original, Resolved: resolved, Line: line,
+		})
+	}
+}
+
 // resolveModule normalizes an import specifier: relative specifiers
 // become root-relative module paths, known workspace package names map
 // to their directories, anything else stays as-is ("react").
@@ -212,6 +271,13 @@ func (e *extractor) resolveName(name string) (fqn string, exact bool) {
 }
 
 func (e *extractor) extractStatement(n *tree_sitter.Node) {
+	// `export { A } from` / `export * from` declare no local symbol.
+	// The reexport edge is what lets a later query join the barrel
+	// name to the file that actually defines it.
+	if n.Kind() == "export_statement" && n.ChildByFieldName("source") != nil && n.ChildByFieldName("declaration") == nil {
+		e.extractReexports(n)
+		return
+	}
 	d := e.unwrapExport(n)
 	switch d.Kind() {
 	case "class_declaration", "abstract_class_declaration":
