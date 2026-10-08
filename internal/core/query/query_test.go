@@ -66,6 +66,17 @@ class MetricsTest {
 	return New(s, root)
 }
 
+func TestGraphNoticeWithoutPHPStan(t *testing.T) {
+	e := buildEngine(t)
+	notice := e.GraphNotice(`App\Metrics::register()`)
+	if !strings.Contains(notice, "PHPStan") {
+		t.Fatalf("notice = %q", notice)
+	}
+	if e.GraphNotice("src/api#Button()") != "" {
+		t.Fatal("non-PHP symbol should stay quiet")
+	}
+}
+
 func TestSearchCode(t *testing.T) {
 	e := buildEngine(t)
 

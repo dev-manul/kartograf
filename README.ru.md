@@ -141,7 +141,9 @@ TypeScript `export { Name } from` и `export * from` проходятся на
 
 Для PHP-проектов `kartograf enrich php` — фактически обязателен для
 графа вызовов, а не опциональная фича: `serve` предупреждает, если
-его нет.
+его нет, а `get_callers`, `get_callees`, `find_references` и
+`explore` пишут об этом в `notice`, а не возвращают тихий пустой
+список.
 
 ## Контекст задачи
 

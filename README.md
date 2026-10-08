@@ -141,7 +141,8 @@ What works without the enrichment layer:
 
 For PHP projects `kartograf enrich php` is effectively required for
 call-graph queries, not an optional nicety — `serve` warns when it is
-missing.
+missing, and `get_callers`, `get_callees`, `find_references` and
+`explore` say so in `notice` instead of returning a quiet empty list.
 
 ## Task context
 

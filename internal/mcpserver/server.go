@@ -81,6 +81,7 @@ type declarationsOut struct {
 
 type edgesOut struct {
 	Results []query.EdgeHit `json:"results"`
+	Notice  string          `json:"notice,omitempty"`
 }
 
 type hierarchyOut struct {
@@ -191,8 +192,9 @@ func register(s *mcp.Server, q *query.Engine) {
 			"constant access, inheritance). Args: fqn (or bare name), limit. Each edge carries " +
 			"source (ast | phpstan | go-types) and resolved (false = heuristic match).",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in fqnIn) (*mcp.CallToolResult, edgesOut, error) {
-		hits, err := q.References(resolveFQN(q, in.FQN), limit(in.Limit), edgeFilter(in))
-		return nil, edgesOut{Results: nonNil(hits)}, err
+		fqn := resolveFQN(q, in.FQN)
+		hits, err := q.References(fqn, limit(in.Limit), edgeFilter(in))
+		return nil, edgesOut{Results: nonNil(hits), Notice: q.GraphNotice(fqn)}, err
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -201,16 +203,18 @@ func register(s *mcp.Server, q *query.Engine) {
 			"hierarchy is considered: calls via a parent interface/class reference are included and marked " +
 			"resolved=false. Edges carry source (ast | phpstan | go-types). Optional pathPrefix/excludeTests filters.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in fqnIn) (*mcp.CallToolResult, edgesOut, error) {
-		hits, err := q.Callers(resolveFQN(q, in.FQN), limit(in.Limit), edgeFilter(in))
-		return nil, edgesOut{Results: nonNil(hits)}, err
+		fqn := resolveFQN(q, in.FQN)
+		hits, err := q.Callers(fqn, limit(in.Limit), edgeFilter(in))
+		return nil, edgesOut{Results: nonNil(hits), Notice: q.GraphNotice(fqn)}, err
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "get_callees",
 		Description: "What does this method/function call or instantiate? Lists outgoing call edges in source order.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in fqnIn) (*mcp.CallToolResult, edgesOut, error) {
-		hits, err := q.Callees(resolveFQN(q, in.FQN), limit(in.Limit), edgeFilter(in))
-		return nil, edgesOut{Results: nonNil(hits)}, err
+		fqn := resolveFQN(q, in.FQN)
+		hits, err := q.Callees(fqn, limit(in.Limit), edgeFilter(in))
+		return nil, edgesOut{Results: nonNil(hits), Notice: q.GraphNotice(fqn)}, err
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -234,6 +238,7 @@ func register(s *mcp.Server, q *query.Engine) {
 		Ancestors       []query.Relative `json:"ancestors"`
 		Descendants     []query.Relative `json:"descendants"`
 		ReferencesTotal int              `json:"referencesTotal"`
+		Notice          string           `json:"notice,omitempty"`
 	}
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "explore",
@@ -270,6 +275,7 @@ func register(s *mcp.Server, q *query.Engine) {
 			}
 			out.Declarations = append(out.Declarations, o)
 		}
+		out.Notice = q.GraphNotice(fqn)
 		if callers, err := q.Callers(fqn, maxEdges, query.EdgeFilter{}); err == nil {
 			out.Callers = nonNil(callers)
 		}
