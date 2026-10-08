@@ -244,6 +244,46 @@ func TestHookTextOncePerSession(t *testing.T) {
 	}
 }
 
+func TestStaleFiles(t *testing.T) {
+	root := initRepo(t)
+	writeFile(t, root, "src.go", "package p\n")
+	runGit(t, root, "add", "src.go")
+	commitAt(t, root, "add src", "2026-01-01T00:00:00Z")
+
+	orig := now
+	t.Cleanup(func() { now = orig })
+	now = func() time.Time { return time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC) }
+	note, err := Put(root, "main", "done: src.go\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stale := StaleFiles(root, note); len(stale) != 0 {
+		t.Fatalf("stale before edit = %v", stale)
+	}
+
+	writeFile(t, root, "src.go", "package p\nfunc F() {}\n")
+	runGit(t, root, "add", "src.go")
+	commitAt(t, root, "edit src", "2026-01-03T00:00:00Z")
+	note, err = Get(root, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale := StaleFiles(root, note)
+	if len(stale) != 1 || stale[0] != "src.go" {
+		t.Fatalf("stale = %v", stale)
+	}
+}
+
+func commitAt(t *testing.T, root, msg, when string) {
+	t.Helper()
+	cmd := exec.Command("git", "-C", root, "commit", "-m", msg)
+	cmd.Env = append(os.Environ(), "GIT_AUTHOR_DATE="+when, "GIT_COMMITTER_DATE="+when)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git commit: %v\n%s", err, out)
+	}
+}
+
 func TestChangedFiles(t *testing.T) {
 	root := initRepo(t)
 	writeFile(t, root, "a.go", "package a\n")

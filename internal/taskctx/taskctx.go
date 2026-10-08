@@ -186,7 +186,7 @@ func HookText(root, sessionID string) string {
 	var b strings.Builder
 	note, err := Get(root, branch)
 	if err == nil && strings.TrimSpace(note.Body) != "" {
-		writeNote(&b, note)
+		writeNote(&b, root, note)
 	} else {
 		writeChangedFiles(&b, root, branch)
 	}
@@ -214,7 +214,7 @@ func HookText(root, sessionID string) string {
 	return b.String()
 }
 
-func writeNote(b *strings.Builder, note Note) {
+func writeNote(b *strings.Builder, root string, note Note) {
 	body, truncated := truncate(note.Body, MaxBody)
 	fmt.Fprintf(b, "<kartograf_task branch=%q>\n", note.Branch)
 	b.WriteString(body)
@@ -223,6 +223,9 @@ func writeNote(b *strings.Builder, note Note) {
 	}
 	if truncated {
 		b.WriteString("…\n")
+	}
+	if stale := StaleFiles(root, note); len(stale) > 0 {
+		fmt.Fprintf(b, "changed since this note: %s\n", strings.Join(stale, ", "))
 	}
 	b.WriteString("</kartograf_task>\n")
 }

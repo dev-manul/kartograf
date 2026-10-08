@@ -141,7 +141,8 @@ A handoff note per git branch lets a new chat resume work days later:
 what the task was, what changed (key files and symbols), which
 decisions were made and why, what is left, and how to verify. The
 agent writes it when work pauses, not on every turn. One note is at
-most 4 KiB.
+most 4 KiB. Paths named in the note that were committed afterwards
+come back as `staleFiles`, so a later chat can see the code has moved.
 
 Notes live under the repository's common git directory
 (`<git-common-dir>/kartograf/context/`), outside the working tree and

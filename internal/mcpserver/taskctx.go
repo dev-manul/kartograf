@@ -23,9 +23,10 @@ type putTaskContextIn struct {
 }
 
 type taskContextOut struct {
-	Branch    string `json:"branch"`
-	UpdatedAt string `json:"updatedAt,omitempty"`
-	Body      string `json:"body"`
+	Branch     string   `json:"branch"`
+	UpdatedAt  string   `json:"updatedAt,omitempty"`
+	Body       string   `json:"body"`
+	StaleFiles []string `json:"staleFiles,omitempty"`
 }
 
 type listTaskContextIn struct{}
@@ -46,13 +47,14 @@ func registerTaskContext(s *mcp.Server, q *query.Engine, root string) {
 		Description: "Load the handoff note for a git branch (current checkout when branch is omitted): " +
 			"what was done, key files and symbols, decisions, and what is left. " +
 			"Skip this call when a kartograf_task block for that branch is already in the conversation. " +
-			"Pass branch to open a note from another branch listed in kartograf_tasks.",
+			"Pass branch to open a note from another branch listed in kartograf_tasks. " +
+			"staleFiles lists paths from the note that were committed after it.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in taskContextIn) (*mcp.CallToolResult, taskContextOut, error) {
 		note, err := taskctx.Get(root, in.Branch)
 		if err != nil {
 			return nil, taskContextOut{}, err
 		}
-		return nil, taskContextNote(note), nil
+		return nil, taskContextNote(root, note), nil
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -67,7 +69,7 @@ func registerTaskContext(s *mcp.Server, q *query.Engine, root string) {
 		if err != nil {
 			return nil, taskContextOut{}, err
 		}
-		return nil, taskContextNote(note), nil
+		return nil, taskContextNote(root, note), nil
 	})
 
 	type branchChangesIn struct {
@@ -148,11 +150,12 @@ func registerTaskContext(s *mcp.Server, q *query.Engine, root string) {
 	})
 }
 
-func taskContextNote(note taskctx.Note) taskContextOut {
+func taskContextNote(root string, note taskctx.Note) taskContextOut {
 	return taskContextOut{
-		Branch:    note.Branch,
-		UpdatedAt: formatUpdated(note.UpdatedAt),
-		Body:      note.Body,
+		Branch:     note.Branch,
+		UpdatedAt:  formatUpdated(note.UpdatedAt),
+		Body:       note.Body,
+		StaleFiles: taskctx.StaleFiles(root, note),
 	}
 }
 
