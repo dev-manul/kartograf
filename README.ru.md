@@ -73,6 +73,7 @@ kartograf serve [root]                      # MCP-сервер на stdio (са�
 kartograf outline path/to/File.php          # символы файла
 kartograf outline --json path/to/File.php   # полный FileIndex в JSON
 kartograf install claude|cursor [root]     # зарегистрировать MCP-сервер у клиента
+kartograf install codex [root]              # хуки Codex: UserPromptSubmit и Stop
 kartograf install hook [root]               # хук Claude Code: упоминание символа в промпте
                                             # подсказывает агенту сходить в граф
 kartograf self-update                       # обновиться до последнего релиза
@@ -171,9 +172,10 @@ Claude Code добавляет в первый промпт сессии, наз
 Claude Code и, после `kartograf install cursor`, хук
 beforeSubmitPrompt в Cursor вставляют заметку текущей ветки один раз
 за сессию и больше не повторяют. Если в том же чате переключиться
-на другую ветку, её заметка показывается один раз. Хук Stop в Claude Code один раз в
-конце хода просит дописать заметку, если ветка уехала, а заметки нет
-или она устарела.
+на другую ветку, её заметка показывается один раз. Хук Stop в Claude Code и тот же хук после `kartograf install codex`
+один раз в конце хода просит дописать заметку, если ветка уехала, а
+заметки нет или она устарела. В Codex хук нужно доверить через
+`/hooks`, и должна быть включена `features.hooks`.
 
 ## Слой точности
 

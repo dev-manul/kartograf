@@ -13,7 +13,7 @@ import (
 
 func newInstallCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "install <claude|cursor|hook> [root]",
+		Use:   "install <claude|cursor|codex|hook> [root]",
 		Short: "Register kartograf as an MCP server for a client",
 		Long: `Registers this binary as a stdio MCP server for the given project root
 (default: current directory).
@@ -22,8 +22,9 @@ func newInstallCmd() *cobra.Command {
   cursor — writes/merges <root>/.cursor/mcp.json with type=stdio and
            absolute paths (Cursor does not expand ~), and a
            beforeSubmitPrompt hook that injects the branch handoff
-  hook   — merges a UserPromptSubmit hook into <root>/.claude/settings.json
-           that injects the current branch's working note and surfaces
+  codex  — merges UserPromptSubmit and Stop hooks into <root>/.codex/hooks.json
+  hook   — merges UserPromptSubmit and Stop hooks into <root>/.claude/settings.json
+           that inject the current branch's working note and surface
            indexed symbols mentioned in each prompt`,
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -47,10 +48,12 @@ func newInstallCmd() *cobra.Command {
 				return installClaude(exe, absRoot)
 			case "cursor":
 				return installCursor(exe, absRoot)
+			case "codex":
+				return installCodex(exe, absRoot)
 			case "hook":
 				return installHook(exe, absRoot)
 			default:
-				return fmt.Errorf("unknown client %q (want claude, cursor or hook)", args[0])
+				return fmt.Errorf("unknown client %q (want claude, cursor, codex or hook)", args[0])
 			}
 		},
 	}
@@ -164,12 +167,35 @@ func ensureCommandHook(hooks map[string]any, event, command string) bool {
 	return true
 }
 
+func installCodex(exe, root string) error {
+	path := filepath.Join(root, ".codex", "hooks.json")
+	wrote, err := mergeCommandHooks(path, exe, root, "UserPromptSubmit", "Stop")
+	if err != nil {
+		return err
+	}
+	if wrote {
+		fmt.Printf("wrote %s; in Codex run /hooks to trust it, and enable features.hooks if hooks are off\n", path)
+	}
+	return nil
+}
+
 func installHook(exe, root string) error {
 	path := filepath.Join(root, ".claude", "settings.json")
+	wrote, err := mergeCommandHooks(path, exe, root, "UserPromptSubmit", "Stop")
+	if err != nil {
+		return err
+	}
+	if wrote {
+		fmt.Printf("wrote %s; the hook activates on the next session\n", path)
+	}
+	return nil
+}
+
+func mergeCommandHooks(path, exe, root string, events ...string) (bool, error) {
 	cfg := map[string]any{}
 	if data, err := os.ReadFile(path); err == nil {
 		if err := json.Unmarshal(data, &cfg); err != nil {
-			return fmt.Errorf("%s exists but is not valid JSON: %w", path, err)
+			return false, fmt.Errorf("%s exists but is not valid JSON: %w", path, err)
 		}
 	}
 	hooks, _ := cfg["hooks"].(map[string]any)
@@ -177,24 +203,27 @@ func installHook(exe, root string) error {
 		hooks = map[string]any{}
 	}
 	command := fmt.Sprintf("%s hook --root %s", exe, root)
-	added := ensureCommandHook(hooks, "UserPromptSubmit", command)
-	added = ensureCommandHook(hooks, "Stop", command) || added
+	added := false
+	for _, event := range events {
+		if ensureCommandHook(hooks, event, command) {
+			added = true
+		}
+	}
 	if !added {
 		fmt.Printf("a kartograf hook is already configured in %s\n", path)
-		return nil
+		return false, nil
 	}
 	cfg["hooks"] = hooks
 
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
+		return false, err
 	}
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
-		return err
+		return false, err
 	}
 	if err := os.WriteFile(path, append(data, '\n'), 0o644); err != nil {
-		return err
+		return false, err
 	}
-	fmt.Printf("wrote %s; the hook activates on the next session\n", path)
-	return nil
+	return true, nil
 }

@@ -73,6 +73,7 @@ kartograf serve [root]                      # MCP server on stdio (updates the i
 kartograf outline path/to/File.php          # symbols of one file
 kartograf outline --json path/to/File.php   # full FileIndex as JSON
 kartograf install claude|cursor [root]     # register the MCP server for a client
+kartograf install codex [root]              # Codex UserPromptSubmit and Stop hooks
 kartograf install hook [root]               # Claude Code prompt hook: mentions of indexed
                                             # symbols nudge the agent to query the graph
 kartograf self-update                       # update to the latest release
@@ -169,9 +170,11 @@ branch name only has to contain the id. A detached HEAD is stored as `HEAD@<sha>
 Code hook and, after `kartograf install cursor`, Cursor's
 beforeSubmitPrompt hook inject the current branch's note once per
 session and do not repeat it. Checking out another branch in that
-same chat shows the new branch's note once. The Claude Code Stop hook asks for the
-note once, at the end of a turn, when the branch has moved and the
-note is missing or stale.
+same chat shows the new branch's note once. The Claude Code Stop hook, and the same hook after
+`kartograf install codex`, asks for the note once, at the end of a
+turn, when the branch has moved and the note is missing or stale.
+Codex must trust the new hook (`/hooks`) and have `features.hooks`
+enabled.
 
 ## Enrichment layer
 
