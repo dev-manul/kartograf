@@ -20,7 +20,8 @@ func newInstallCmd() *cobra.Command {
 
   claude — runs "claude mcp add kartograf" (local project scope)
   cursor — writes/merges <root>/.cursor/mcp.json with type=stdio and
-           absolute paths (Cursor does not expand ~)
+           absolute paths (Cursor does not expand ~), and a
+           beforeSubmitPrompt hook that injects the branch handoff
   hook   — merges a UserPromptSubmit hook into <root>/.claude/settings.json
            that injects the current branch's working note and surfaces
            indexed symbols mentioned in each prompt`,
@@ -102,7 +103,49 @@ func installCursor(exe, root string) error {
 	if err := os.WriteFile(path, append(data, '\n'), 0o644); err != nil {
 		return err
 	}
+	if err := installCursorHook(exe, root); err != nil {
+		return err
+	}
 	fmt.Printf("wrote %s; reload the MCP list in Cursor (Settings → MCP)\n", path)
+	return nil
+}
+
+// installCursorHook merges a beforeSubmitPrompt hook that injects the
+// branch handoff on the first prompt of a Cursor chat.
+func installCursorHook(exe, root string) error {
+	path := filepath.Join(root, ".cursor", "hooks.json")
+	cfg := map[string]any{"version": 1}
+	if data, err := os.ReadFile(path); err == nil {
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			return fmt.Errorf("%s exists but is not valid JSON: %w", path, err)
+		}
+	}
+	hooks, _ := cfg["hooks"].(map[string]any)
+	if hooks == nil {
+		hooks = map[string]any{}
+	}
+	entries, _ := hooks["beforeSubmitPrompt"].([]any)
+	command := fmt.Sprintf("%s hook --root %s --cursor", exe, root)
+	for _, e := range entries {
+		if strings.Contains(fmt.Sprint(e), " hook --root ") {
+			fmt.Printf("a kartograf hook is already configured in %s\n", path)
+			return nil
+		}
+	}
+	entries = append(entries, map[string]any{"command": command})
+	hooks["beforeSubmitPrompt"] = entries
+	cfg["hooks"] = hooks
+	if cfg["version"] == nil {
+		cfg["version"] = 1
+	}
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(path, append(data, '\n'), 0o644); err != nil {
+		return err
+	}
+	fmt.Printf("wrote %s; the handoff shows up on the next Cursor chat\n", path)
 	return nil
 }
 

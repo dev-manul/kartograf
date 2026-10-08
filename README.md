@@ -152,9 +152,10 @@ Call `get_task_context` only when no `<kartograf_task>` block for that
 branch is already in the conversation. Follow-ups often arrive on a
 new branch: `list_task_contexts` (and the `<kartograf_tasks>` list the
 Claude Code hook adds on the first prompt of a session) names the
-older notes. A detached HEAD is stored as `HEAD@<sha>`. The hook
-injects the current branch's note once per session and does not repeat
-it.
+older notes. A detached HEAD is stored as `HEAD@<sha>`. The Claude
+Code hook and, after `kartograf install cursor`, Cursor's
+beforeSubmitPrompt hook inject the current branch's note once per
+session and do not repeat it.
 
 ## Enrichment layer
 

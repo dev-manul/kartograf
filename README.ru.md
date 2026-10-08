@@ -153,8 +153,9 @@ claude mcp add kartograf -- kartograf serve /path/to/project
 ветке: `list_task_contexts` и список `<kartograf_tasks>`, который хук
 Claude Code добавляет в первый промпт сессии, называют старые
 заметки. Отсоединённый HEAD записывается как `HEAD@<sha>`. Хук
-вставляет заметку текущей ветки один раз за сессию и больше не
-повторяет.
+Claude Code и, после `kartograf install cursor`, хук
+beforeSubmitPrompt в Cursor вставляют заметку текущей ветки один раз
+за сессию и больше не повторяют.
 
 ## Слой точности
 

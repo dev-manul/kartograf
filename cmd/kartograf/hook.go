@@ -16,47 +16,68 @@ import (
 	"github.com/dev-manul/kartograf/internal/taskctx"
 )
 
-// hook is a Claude Code UserPromptSubmit hook. On the first prompt of
-// a session it prints the working note for the current git branch,
-// then looks up identifier-looking words from the prompt in the
-// kartograf index and, on a match, prints a small context block that
+// hook is a prompt hook for Claude Code and Cursor. On the first
+// prompt of a session it surfaces the handoff note for the current
+// git branch, then looks up identifier-looking words from the prompt
+// in the kartograf index and, on a match, adds a small block that
 // nudges the agent to query the code graph instead of grepping.
 //
-// Contract: whatever this prints to stdout is injected into the
-// conversation as context. It must be fast and silent when it has
-// nothing to say, and must always exit 0 — a hook failure must never
-// block the user's prompt.
+// Claude Code reads plain text from stdout. Cursor's beforeSubmitPrompt
+// hook reads a JSON object; pass --cursor or send a Cursor hook event
+// and the same text goes out as additional_context.
+//
+// Contract: output is injected into the conversation as context. It
+// must be fast and silent when it has nothing to say, and must always
+// exit 0 — a hook failure must never block the user's prompt.
 func newHookCmd() *cobra.Command {
 	var root string
+	var cursor bool
 	cmd := &cobra.Command{
 		Use:    "hook",
-		Short:  "Claude Code UserPromptSubmit hook: surface the branch note and indexed symbols mentioned in the prompt",
+		Short:  "Prompt hook: surface the branch handoff and indexed symbols mentioned in the prompt",
 		Hidden: true,
 		Args:   cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			runHook(root) // best-effort by design
+			runHook(root, cursor) // best-effort by design
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&root, "root", ".", "project root whose index to query")
+	cmd.Flags().BoolVar(&cursor, "cursor", false, "emit Cursor hook JSON (additional_context) instead of plain text")
 	return cmd
 }
 
-func runHook(root string) {
+type hookInput struct {
+	Prompt         string `json:"prompt"`
+	SessionID      string `json:"session_id"`
+	ConversationID string `json:"conversation_id"`
+	HookEvent      string `json:"hook_event_name"`
+}
+
+func runHook(root string, cursor bool) {
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
 		return
 	}
-	var in struct {
-		Prompt    string `json:"prompt"`
-		SessionID string `json:"session_id"`
-	}
+	var in hookInput
 	raw, err := io.ReadAll(io.LimitReader(os.Stdin, 1<<20))
 	if err == nil {
 		_ = json.Unmarshal(raw, &in)
 	}
-	if text := taskctx.HookText(absRoot, in.SessionID); text != "" {
-		fmt.Print(text)
+	if in.HookEvent == "beforeSubmitPrompt" || in.HookEvent == "sessionStart" {
+		cursor = true
+	}
+	session := in.SessionID
+	if session == "" {
+		session = in.ConversationID
+	}
+	var body strings.Builder
+	defer func() {
+		fmt.Print(formatHookOutput(cursor, body.String()))
+	}()
+
+	if text := taskctx.HookText(absRoot, session); text != "" {
+		body.WriteString(text)
 	}
 	if in.Prompt == "" {
 		return
@@ -85,13 +106,31 @@ func runHook(root string) {
 		return
 	}
 
-	fmt.Println(`<kartograf_context note="the kartograf index has symbols matching this prompt — query the code graph before grepping files.">`)
-	fmt.Println("Matching indexed symbols:")
+	fmt.Fprintf(&body, "<kartograf_context note=%q>\n", "the kartograf index has symbols matching this prompt — query the code graph before grepping files.")
+	body.WriteString("Matching indexed symbols:\n")
 	for _, h := range hits {
-		fmt.Printf("  - %s (%s — %s:%d)\n", h.FQN, h.Kind, h.File, h.Line)
+		fmt.Fprintf(&body, "  - %s (%s — %s:%d)\n", h.FQN, h.Kind, h.File, h.Line)
 	}
-	fmt.Println("Call the kartograf `explore` tool once with the relevant name for source, callers and hierarchy; use get_callers/find_references for specific slices.")
-	fmt.Println(`</kartograf_context>`)
+	body.WriteString("Call the kartograf `explore` tool once with the relevant name for source, callers and hierarchy; use get_callers/find_references for specific slices.\n")
+	body.WriteString("</kartograf_context>\n")
+}
+
+// formatHookOutput wraps text for the client that invoked the hook.
+// Cursor wants JSON; Claude Code wants the text itself. Empty Claude
+// output stays empty so a quiet hook adds nothing.
+func formatHookOutput(cursor bool, text string) string {
+	if !cursor {
+		return text
+	}
+	payload := map[string]any{"continue": true}
+	if text != "" {
+		payload["additional_context"] = text
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return "{\"continue\":true}\n"
+	}
+	return string(data) + "\n"
 }
 
 var identRe = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]{2,}`)

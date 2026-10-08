@@ -14,6 +14,10 @@ Config example — project `.cursor/mcp.json` or global `~/.cursor/mcp.json`:
 }
 ```
 
+`kartograf install cursor <root>` also writes `.cursor/hooks.json`.
+The beforeSubmitPrompt hook injects the branch handoff into the chat
+once per session, as `additional_context`.
+
 ## Troubleshooting checklist
 
 1. **`"type": "stdio"` is present** — Cursor requires it; without it the
