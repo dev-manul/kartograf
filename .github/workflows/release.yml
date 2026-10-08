@@ -74,6 +74,8 @@ jobs:
           fi
           {
             echo 'body<<KARTOGRAF_CHANGELOG_END'
+            echo 'Changes since the previous release:'
+            echo
             git log --reverse --no-merges --pretty=format:'- %s' $range
             echo
             echo KARTOGRAF_CHANGELOG_END
