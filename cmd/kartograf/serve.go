@@ -16,6 +16,7 @@ import (
 	"github.com/dev-manul/kartograf/internal/enrich"
 	"github.com/dev-manul/kartograf/internal/mcpserver"
 	"github.com/dev-manul/kartograf/internal/selfupdate"
+	"github.com/dev-manul/kartograf/internal/usage"
 )
 
 func newServeCmd() *cobra.Command {
@@ -109,7 +110,21 @@ All progress output goes to stderr; stdout carries the MCP protocol.`,
 				}
 			}()
 
+			rec, err := usage.Open(filepath.Join(filepath.Dir(dbPath), "usage.db"))
+			if err != nil {
+				logf("usage: %v", err)
+			} else {
+				defer func() {
+					if line := rec.SessionLine(cfg.Stats.DollarsPerMillion); line != "" {
+						logf("%s", line)
+					}
+					rec.Close()
+				}()
+			}
 			srv := mcpserver.New(query.New(s, absRoot), absRoot, version)
+			if rec != nil {
+				srv.AddReceivingMiddleware(rec.Middleware(s.FileSizes))
+			}
 			fmt.Fprintln(os.Stderr, "kartograf: serving MCP on stdio")
 			return srv.Run(context.Background(), &mcp.StdioTransport{})
 		},

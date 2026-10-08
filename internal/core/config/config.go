@@ -32,6 +32,27 @@ type Config struct {
 	// Used by find_task. An empty Branch matches any branch whose
 	// name contains the id.
 	Task Task `yaml:"task"`
+	// Enrich tells kartograf where to obtain a graph that was built
+	// on a machine that has PHP or Go.
+	Enrich Enrich `yaml:"enrich"`
+	// Stats is the optional price used to turn token estimates into money.
+	Stats Stats `yaml:"stats"`
+}
+
+// Stats configures the local usage report. Nothing is uploaded.
+type Stats struct {
+	// DollarsPerMillion is the price of one million tokens the agent
+	// spends reading source. Zero leaves the report in tokens only.
+	DollarsPerMillion float64 `yaml:"dollars_per_million"`
+}
+
+// Enrich is the optional download of a prebuilt exchange file.
+type Enrich struct {
+	// URL is an https template containing "{commit}". When the local
+	// PHPStan exchange file is missing or was built at another commit,
+	// serve/index downloads it. Example:
+	// https://example.com/kartograf/{commit}/enrich.phpstan.jsonl
+	URL string `yaml:"url"`
 }
 
 // Task is the optional branch-name rule for one repository.
@@ -74,6 +95,11 @@ func Load(root string) (Config, error) {
 	}
 	if cfg.Task.Branch != "" && !strings.Contains(cfg.Task.Branch, "{id}") {
 		return cfg, fmt.Errorf("%s: task.branch must contain {id}, got %q", FileName, cfg.Task.Branch)
+	}
+	if cfg.Enrich.URL != "" {
+		if !strings.Contains(cfg.Enrich.URL, "{commit}") || !strings.HasPrefix(cfg.Enrich.URL, "https://") {
+			return cfg, fmt.Errorf("%s: enrich.url must be an https URL containing {commit}, got %q", FileName, cfg.Enrich.URL)
+		}
 	}
 	return cfg, nil
 }

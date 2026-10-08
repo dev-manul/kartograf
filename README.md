@@ -77,6 +77,7 @@ kartograf install codex [root]              # Codex UserPromptSubmit and Stop ho
 kartograf install hook [root]               # Claude Code prompt hook: mentions of indexed
                                             # symbols nudge the agent to query the graph
 kartograf self-update                       # update to the latest release
+kartograf stats [root]                      # local tool-call counts and a token estimate
 ```
 
 Each GitHub release lists the commits since the previous tag, one
@@ -259,6 +260,12 @@ vendor: index      # index (default, flagged as vendor) | skip
 task:
   branch: "feature/{id}-"   # optional; how a task id sits in branch names.
                              # empty = the branch name contains the id
+enrich:
+  url: "https://example.com/kartograf/{commit}/enrich.phpstan.jsonl"
+                             # optional; download a PHPStan graph built in CI
+                             # when this checkout has none for its commit
+stats:
+  dollars_per_million: 3     # optional; price used by `kartograf stats`
 ```
 
 The project's `.gitignore` is respected; vendor/node_modules are

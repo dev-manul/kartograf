@@ -77,6 +77,7 @@ kartograf install codex [root]              # хуки Codex: UserPromptSubmit �
 kartograf install hook [root]               # хук Claude Code: упоминание символа в промпте
                                             # подсказывает агенту сходить в граф
 kartograf self-update                       # обновиться до последнего релиза
+kartograf stats [root]                      # локальный счёт вызовов и оценка токенов
 ```
 
 В каждом релизе на GitHub — коммиты с прошлого тега, по одной
@@ -262,6 +263,12 @@ vendor: index      # index (по умолчанию, с пометкой vendor)
 task:
   branch: "feature/{id}-"   # необязательно; как номер задачи сидит в имени ветки.
                              # пусто = имя ветки содержит номер
+enrich:
+  url: "https://example.com/kartograf/{commit}/enrich.phpstan.jsonl"
+                             # необязательно; скачать граф PHPStan, собранный в CI,
+                             # если для этого коммита своего файла нет
+stats:
+  dollars_per_million: 3     # необязательно; цена для `kartograf stats`
 ```
 
 `.gitignore` проекта уважается; vendor/node_modules индексируются в

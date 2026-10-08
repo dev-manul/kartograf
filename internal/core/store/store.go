@@ -650,6 +650,27 @@ func (s *Store) SetMeta(key, value string) error { return s.setMeta(key, value) 
 // file was built from.
 func EnrichCommitKey(origin string) string { return "enrich_commit_" + origin }
 
+// FileSizes sums the indexed sizes of paths. Unknown paths add nothing.
+func (s *Store) FileSizes(paths []string) (int64, error) {
+	var total int64
+	for start := 0; start < len(paths); start += 400 {
+		chunk := paths[start:min(start+400, len(paths))]
+		placeholders := strings.Repeat("?,", len(chunk))
+		placeholders = placeholders[:len(placeholders)-1]
+		args := make([]any, len(chunk))
+		for i, p := range chunk {
+			args[i] = p
+		}
+		var n int64
+		err := s.db.QueryRow(`SELECT COALESCE(SUM(size), 0) FROM files WHERE path IN (`+placeholders+`)`, args...).Scan(&n)
+		if err != nil {
+			return 0, err
+		}
+		total += n
+	}
+	return total, nil
+}
+
 // IndexedPaths returns the set of indexed file paths (for mapping
 // external tool output paths onto the index).
 func (s *Store) IndexedPaths() (map[string]bool, error) {
