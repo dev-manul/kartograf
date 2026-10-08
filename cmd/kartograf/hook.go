@@ -13,12 +13,14 @@ import (
 
 	"github.com/dev-manul/kartograf/internal/core/query"
 	"github.com/dev-manul/kartograf/internal/core/store"
+	"github.com/dev-manul/kartograf/internal/taskctx"
 )
 
-// hook is a Claude Code UserPromptSubmit hook: it reads the hook JSON
-// from stdin, looks up identifier-looking words from the prompt in the
-// kartograf index and, on a match, prints a small context block that
-// nudges the agent to query the code graph instead of grepping.
+// hook is a Claude Code UserPromptSubmit hook. It prints the working
+// note for the current git branch when one exists, then looks up
+// identifier-looking words from the prompt in the kartograf index and,
+// on a match, prints a small context block that nudges the agent to
+// query the code graph instead of grepping.
 //
 // Contract: whatever this prints to stdout is injected into the
 // conversation as context. It must be fast and silent when it has
@@ -28,7 +30,7 @@ func newHookCmd() *cobra.Command {
 	var root string
 	cmd := &cobra.Command{
 		Use:    "hook",
-		Short:  "Claude Code UserPromptSubmit hook: surface indexed symbols mentioned in the prompt",
+		Short:  "Claude Code UserPromptSubmit hook: surface the branch note and indexed symbols mentioned in the prompt",
 		Hidden: true,
 		Args:   cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -45,6 +47,10 @@ func runHook(root string) {
 	if err != nil {
 		return
 	}
+	if text := taskctx.HookText(absRoot); text != "" {
+		fmt.Print(text)
+	}
+
 	dbPath, err := store.DefaultPath(absRoot)
 	if err != nil {
 		return

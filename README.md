@@ -106,6 +106,9 @@ built once after the load), warm run ~1.5s.
 | `explore` | One-shot overview: declaration + source, callers, callees, hierarchy, reference count |
 | `impact` | Blast radius: transitive callers by depth + affected test files |
 | `search_code` | Full-text search over file contents: string literals, SQL, config keys |
+| `get_task_context` | Working note for a git branch (current branch when omitted) |
+| `put_task_context` | Replace that note; a blank body deletes it |
+| `list_task_contexts` | Branches that have a saved note |
 
 Edges with `resolved=false` are heuristic (calls via `parent::`,
 inferred receiver types, global function fallback); exact edges follow
@@ -126,6 +129,21 @@ What works without the enrichment layer:
 For PHP projects `kartograf enrich php` is effectively required for
 call-graph queries, not an optional nicety — `serve` warns when it is
 missing.
+
+## Task context
+
+Working notes survive a new chat and a branch switch. One markdown
+note per git branch is stored under the repository's common git
+directory (`<git-common-dir>/kartograf/context/`), outside the working
+tree and outside the index database, so `git checkout` and
+`index --rebuild` leave the notes in place. Notes stay local to the
+clone; linked worktrees of the same repository share them.
+
+Call `get_task_context` at the start of a task and `put_task_context`
+when the plan changes (read the current note first and write back the
+full text). `list_task_contexts` finds notes for other branches. A
+detached HEAD is stored as `HEAD@<sha>`. The Claude Code prompt hook
+also injects a short excerpt of the current branch's note.
 
 ## Enrichment layer
 
@@ -226,6 +244,7 @@ indexed bypassing gitignore and flagged as vendor.
   tree-sitter adapters.
 - `internal/enrich` — go/types and PHPStan enrichment.
 - `internal/mcpserver` — MCP tools over the query engine.
+- `internal/taskctx` — per-branch working notes, outside the index.
 
 Files with syntax errors are parsed best-effort and flagged
 `hasErrors` (tree-sitter error recovery).

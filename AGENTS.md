@@ -41,6 +41,8 @@ that is intentional, add `-tags sqlite_fts5` or use make.
 - `internal/enrich` — go/types pass and PHPStan rule scaffolding +
   JSONL import.
 - `internal/mcpserver` — MCP tool definitions.
+- `internal/taskctx` — per-branch working notes in the git common
+  dir, outside the index database.
 
 ## Hard-won rules (do not relearn these the hard way)
 

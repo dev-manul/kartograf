@@ -15,13 +15,15 @@ import (
 const defaultLimit = 50
 
 // New builds the MCP server with all kartograf tools registered.
-func New(q *query.Engine, version string) *mcp.Server {
+// root is the project directory task-context notes are stored for.
+func New(q *query.Engine, root, version string) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{
 		Name:    "kartograf",
 		Title:   "Kartograf code map",
 		Version: version,
-	}, nil)
+	}, &mcp.ServerOptions{Instructions: taskContextInstructions})
 	register(s, q)
+	registerTaskContext(s, root)
 	return s
 }
 

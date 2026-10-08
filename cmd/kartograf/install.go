@@ -22,8 +22,8 @@ func newInstallCmd() *cobra.Command {
   cursor — writes/merges <root>/.cursor/mcp.json with type=stdio and
            absolute paths (Cursor does not expand ~)
   hook   — merges a UserPromptSubmit hook into <root>/.claude/settings.json
-           that surfaces indexed symbols mentioned in each prompt and
-           nudges the agent to query the graph before grepping`,
+           that injects the current branch's working note and surfaces
+           indexed symbols mentioned in each prompt`,
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			root := "."

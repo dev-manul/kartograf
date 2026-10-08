@@ -109,7 +109,7 @@ All progress output goes to stderr; stdout carries the MCP protocol.`,
 				}
 			}()
 
-			srv := mcpserver.New(query.New(s, absRoot), version)
+			srv := mcpserver.New(query.New(s, absRoot), absRoot, version)
 			fmt.Fprintln(os.Stderr, "kartograf: serving MCP on stdio")
 			return srv.Run(context.Background(), &mcp.StdioTransport{})
 		},

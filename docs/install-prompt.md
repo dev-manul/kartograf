@@ -59,7 +59,8 @@ by following these steps.
 6. Tell the user to restart the session so the tools appear, and list
    what they will get: `search_symbols`, `get_symbol`,
    `find_references`, `get_callers`, `get_callees`, `class_hierarchy`,
-   `file_outline`.
+   `file_outline`, `get_task_context`, `put_task_context`,
+   `list_task_contexts`.
 
 Notes:
 
