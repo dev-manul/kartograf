@@ -115,6 +115,7 @@ built once after the load), warm run ~1.5s.
 | `explore` | One-shot overview: declaration + source, callers, callees, hierarchy, reference count |
 | `impact` | Blast radius: transitive callers by depth + affected test files |
 | `search_code` | Full-text search over file contents: string literals, SQL, config keys |
+| `project_map` | Routes, commands and SQL strings written in source, without running PHP |
 | `get_task_context` | Handoff note for a branch (skip when `<kartograf_task>` for it is already in the chat) |
 | `put_task_context` | Write that handoff when work pauses, so a later chat can resume it (4 KiB; a blank body deletes it) |
 | `list_task_contexts` | Other branches that have a handoff |

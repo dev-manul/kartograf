@@ -186,6 +186,31 @@ func register(s *mcp.Server, q *query.Engine) {
 		return nil, declarationsOut{Declarations: out}, nil
 	})
 
+	type projectMapIn struct {
+		Limit int `json:"limit,omitempty" jsonschema:"max rows in each of routes, commands and sql, default 30"`
+	}
+	type projectMapOut struct {
+		Routes   []query.CodeMatch `json:"routes"`
+		Commands []query.CodeMatch `json:"commands"`
+		SQL      []query.CodeMatch `json:"sql"`
+		Notice   string            `json:"notice,omitempty"`
+	}
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "project_map",
+		Description: "Text scan of routes, console commands and SQL strings written in source. " +
+			"Use this for questions about where a feature lives when PHP is not available to run the app. " +
+			"Routes and commands assembled only at runtime are absent. Each list is capped.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in projectMapIn) (*mcp.CallToolResult, projectMapOut, error) {
+		got, err := q.ProjectMap(in.Limit)
+		if err != nil {
+			return nil, projectMapOut{}, err
+		}
+		return nil, projectMapOut{
+			Routes: got.Routes, Commands: got.Commands, SQL: got.SQL,
+			Notice: "Text scan of source, not a running app. A route or command built only in PHP at runtime is not listed.",
+		}, nil
+	})
+
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "find_references",
 		Description: "Find all places referencing a symbol (calls, instantiations, type hints, instanceof, " +
