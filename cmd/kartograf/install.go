@@ -149,6 +149,21 @@ func installCursorHook(exe, root string) error {
 	return nil
 }
 
+// ensureCommandHook appends a command hook for event unless one is
+// already present. It reports whether it changed the map.
+func ensureCommandHook(hooks map[string]any, event, command string) bool {
+	entries, _ := hooks[event].([]any)
+	for _, e := range entries {
+		if strings.Contains(fmt.Sprint(e), " hook --root ") {
+			return false
+		}
+	}
+	hooks[event] = append(entries, map[string]any{
+		"hooks": []any{map[string]any{"type": "command", "command": command}},
+	})
+	return true
+}
+
 func installHook(exe, root string) error {
 	path := filepath.Join(root, ".claude", "settings.json")
 	cfg := map[string]any{}
@@ -161,18 +176,13 @@ func installHook(exe, root string) error {
 	if hooks == nil {
 		hooks = map[string]any{}
 	}
-	entries, _ := hooks["UserPromptSubmit"].([]any)
 	command := fmt.Sprintf("%s hook --root %s", exe, root)
-	for _, e := range entries {
-		if strings.Contains(fmt.Sprint(e), " hook --root ") {
-			fmt.Printf("a kartograf hook is already configured in %s\n", path)
-			return nil
-		}
+	added := ensureCommandHook(hooks, "UserPromptSubmit", command)
+	added = ensureCommandHook(hooks, "Stop", command) || added
+	if !added {
+		fmt.Printf("a kartograf hook is already configured in %s\n", path)
+		return nil
 	}
-	entries = append(entries, map[string]any{
-		"hooks": []any{map[string]any{"type": "command", "command": command}},
-	})
-	hooks["UserPromptSubmit"] = entries
 	cfg["hooks"] = hooks
 
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

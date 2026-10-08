@@ -306,6 +306,37 @@ func TestChangedFiles(t *testing.T) {
 	}
 }
 
+func TestHandoffNudge(t *testing.T) {
+	root := initRepo(t)
+	if HandoffNudge(root, "sess", false) != "" {
+		t.Fatal("clean checkout should stay quiet")
+	}
+	writeFile(t, root, "src.go", "package p\n")
+	if !strings.Contains(HandoffNudge(root, "sess", false), "put_task_context") {
+		t.Fatal("dirty tree with no note should nudge")
+	}
+	if HandoffNudge(root, "sess", false) != "" {
+		t.Fatal("second nudge in the same session")
+	}
+	if HandoffNudge(root, "fresh", true) != "" {
+		t.Fatal("stop_hook_active must not nudge")
+	}
+
+	other := initRepo(t)
+	orig := now
+	t.Cleanup(func() { now = orig })
+	now = func() time.Time { return time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC) }
+	if _, err := Put(other, "main", "goal: done\n"); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, other, "src.go", "package p\n")
+	runGit(t, other, "add", "src.go")
+	commitAt(t, other, "add src", "2026-01-03T00:00:00Z")
+	if !strings.Contains(HandoffNudge(other, "sess-2", false), "put_task_context") {
+		t.Fatal("commit after the note should nudge")
+	}
+}
+
 func TestFindTask(t *testing.T) {
 	root := t.TempDir()
 	pay := filepath.Join(root, "payments")

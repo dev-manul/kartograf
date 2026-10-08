@@ -52,6 +52,7 @@ type hookInput struct {
 	SessionID      string `json:"session_id"`
 	ConversationID string `json:"conversation_id"`
 	HookEvent      string `json:"hook_event_name"`
+	StopHookActive bool   `json:"stop_hook_active"`
 }
 
 func runHook(root string, cursor bool) {
@@ -70,6 +71,15 @@ func runHook(root string, cursor bool) {
 	session := in.SessionID
 	if session == "" {
 		session = in.ConversationID
+	}
+	// Stop runs when the turn is about to end. A block decision asks
+	// the agent for one more turn, so it only fires when the handoff
+	// is missing or stale, and only once per session and branch.
+	if in.HookEvent == "Stop" {
+		if !in.StopHookActive {
+			fmt.Print(formatStopOutput(taskctx.HandoffNudge(absRoot, session, in.StopHookActive)))
+		}
+		return
 	}
 	var body strings.Builder
 	defer func() {
@@ -118,6 +128,22 @@ func runHook(root string, cursor bool) {
 // formatHookOutput wraps text for the client that invoked the hook.
 // Cursor wants JSON; Claude Code wants the text itself. Empty Claude
 // output stays empty so a quiet hook adds nothing.
+// formatStopOutput is the JSON both Claude Code and Codex read from a
+// Stop hook. An empty reason allows the turn to end.
+func formatStopOutput(reason string) string {
+	if reason == "" {
+		return ""
+	}
+	data, err := json.Marshal(map[string]string{
+		"decision": "block",
+		"reason":   reason,
+	})
+	if err != nil {
+		return ""
+	}
+	return string(data) + "\n"
+}
+
 func formatHookOutput(cursor bool, text string) string {
 	if !cursor {
 		return text

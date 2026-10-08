@@ -6,6 +6,20 @@ import (
 	"testing"
 )
 
+func TestFormatStopOutput(t *testing.T) {
+	if got := formatStopOutput(""); got != "" {
+		t.Fatalf("empty = %q", got)
+	}
+	got := formatStopOutput("write the handoff")
+	var payload map[string]string
+	if err := json.Unmarshal([]byte(got), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload["decision"] != "block" || !strings.Contains(payload["reason"], "handoff") {
+		t.Fatalf("payload = %v", payload)
+	}
+}
+
 func TestFormatHookOutput(t *testing.T) {
 	if got := formatHookOutput(false, ""); got != "" {
 		t.Fatalf("claude empty = %q", got)

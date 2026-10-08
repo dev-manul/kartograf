@@ -168,7 +168,9 @@ can set `task.branch` in `.kartograf.yml` (see below); otherwise the
 branch name only has to contain the id. A detached HEAD is stored as `HEAD@<sha>`. The Claude
 Code hook and, after `kartograf install cursor`, Cursor's
 beforeSubmitPrompt hook inject the current branch's note once per
-session and do not repeat it.
+session and do not repeat it. The Claude Code Stop hook asks for the
+note once, at the end of a turn, when the branch has moved and the
+note is missing or stale.
 
 ## Enrichment layer
 
