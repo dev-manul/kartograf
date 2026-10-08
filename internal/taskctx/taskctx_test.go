@@ -244,6 +244,30 @@ func TestHookTextOncePerSession(t *testing.T) {
 	}
 }
 
+func TestHookTextRepeatsOnBranchSwitch(t *testing.T) {
+	root := initRepo(t)
+	if _, err := Put(root, "main", "goal: main work\n"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(HookText(root, "sess"), "goal: main work") {
+		t.Fatal("missing main note")
+	}
+	if HookText(root, "sess") != "" {
+		t.Fatal("repeated on the same branch")
+	}
+	runGit(t, root, "checkout", "-b", "feature/pay")
+	if _, err := Put(root, "feature/pay", "goal: pay work\n"); err != nil {
+		t.Fatal(err)
+	}
+	text := HookText(root, "sess")
+	if !strings.Contains(text, `branch="feature/pay"`) || !strings.Contains(text, "goal: pay work") {
+		t.Fatalf("after switch:\n%s", text)
+	}
+	if HookText(root, "sess") != "" {
+		t.Fatal("repeated on the new branch")
+	}
+}
+
 func TestStaleFiles(t *testing.T) {
 	root := initRepo(t)
 	writeFile(t, root, "src.go", "package p\n")

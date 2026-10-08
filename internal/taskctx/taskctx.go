@@ -166,23 +166,27 @@ func List(root string) ([]Summary, error) {
 // HookText is the prompt-hook block for the current branch. sessionID
 // scopes the injection to one chat: the handoff is shown on the first
 // prompt of that session and not again, because a repeated block would
-// stay in the transcript and be paid for on every later turn. An empty
+// stay in the transcript and be paid for on every later turn. Checking
+// out a different branch shows that branch's handoff once. An empty
 // sessionID injects nothing. Other branches' handoffs are listed by
 // name so follow-up work on a new branch can find last week's note.
 // The result is empty when there is nothing saved or git is
 // unavailable — a hook must stay silent rather than fail the prompt.
 func HookText(root, sessionID string) string {
-	if sessionID == "" || alreadySeen(root, sessionID) {
+	if sessionID == "" {
+		return ""
+	}
+	branch, err := CurrentBranch(root)
+	if err != nil {
+		return ""
+	}
+	if seenBranch(root, sessionID) == branch {
 		return ""
 	}
 	// Mark before returning so a session that starts with no note does
 	// not receive the note again after the agent writes it: that write
 	// is already in the transcript as the tool result.
-	remember(root, sessionID)
-	branch, err := CurrentBranch(root)
-	if err != nil {
-		return ""
-	}
+	rememberBranch(root, sessionID, branch)
 	var b strings.Builder
 	note, err := Get(root, branch)
 	if err == nil && strings.TrimSpace(note.Body) != "" {
@@ -230,16 +234,19 @@ func writeNote(b *strings.Builder, root string, note Note) {
 	b.WriteString("</kartograf_task>\n")
 }
 
-func alreadySeen(root, sessionID string) bool {
+func seenBranch(root, sessionID string) string {
 	path, err := seenPath(root, sessionID)
 	if err != nil {
-		return false
+		return ""
 	}
-	_, err = os.Stat(path)
-	return err == nil
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
 }
 
-func remember(root, sessionID string) {
+func rememberBranch(root, sessionID, branch string) {
 	path, err := seenPath(root, sessionID)
 	if err != nil {
 		return
@@ -247,7 +254,7 @@ func remember(root, sessionID string) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return
 	}
-	_ = os.WriteFile(path, nil, 0o644)
+	_ = os.WriteFile(path, []byte(branch), 0o644)
 }
 
 func seenPath(root, sessionID string) (string, error) {
