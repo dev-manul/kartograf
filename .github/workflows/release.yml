@@ -1,6 +1,7 @@
 # Build & release on every push to master.
 # cgo (tree-sitter, sqlite) rules out easy cross-compilation, so each
-# target builds on its native runner.
+# target builds on its native runner. The release body is a short
+# changelog: commit subjects since the previous v* tag.
 name: release
 
 on:
@@ -56,16 +57,34 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: actions/download-artifact@v8
         with:
           merge-multiple: true
+      - name: Changelog since the previous tag
+        id: notes
+        run: |
+          prev=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)
+          if [ -n "$prev" ]; then
+            range="$prev..HEAD"
+          else
+            range=HEAD
+          fi
+          {
+            echo 'body<<KARTOGRAF_CHANGELOG_END'
+            git log --reverse --no-merges --pretty=format:'- %s' $range
+            echo
+            echo KARTOGRAF_CHANGELOG_END
+          } >> "$GITHUB_OUTPUT"
       - run: sha256sum kartograf-* > SHA256SUMS
       - uses: softprops/action-gh-release@v3
         with:
           tag_name: v0.1.${{ github.run_number }}
           name: v0.1.${{ github.run_number }}
+          body: ${{ steps.notes.outputs.body }}
           files: |
             kartograf-*
             SHA256SUMS
           fail_on_unmatched_files: true
-          generate_release_notes: true

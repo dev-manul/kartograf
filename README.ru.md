@@ -78,6 +78,9 @@ kartograf install hook [root]               # хук Claude Code: упомина
 kartograf self-update                       # обновиться до последнего релиза
 ```
 
+В каждом релизе на GitHub — коммиты с прошлого тега, по одной
+английской строке на коммит.
+
 Регистрация в Claude Code:
 
 ```sh

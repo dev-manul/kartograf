@@ -78,6 +78,9 @@ kartograf install hook [root]               # Claude Code prompt hook: mentions 
 kartograf self-update                       # update to the latest release
 ```
 
+Each GitHub release lists the commits since the previous tag, one
+English subject line each.
+
 Registering in Claude Code:
 
 ```sh
