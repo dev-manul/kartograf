@@ -23,7 +23,7 @@ func New(q *query.Engine, root, version string) *mcp.Server {
 		Version: version,
 	}, &mcp.ServerOptions{Instructions: taskContextInstructions})
 	register(s, q)
-	registerTaskContext(s, root)
+	registerTaskContext(s, q, root)
 	return s
 }
 

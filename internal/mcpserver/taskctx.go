@@ -7,10 +7,11 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/dev-manul/kartograf/internal/core/query"
 	"github.com/dev-manul/kartograf/internal/taskctx"
 )
 
-const taskContextInstructions = "Task notes are a handoff so a new chat can resume the work days later. When you pause or finish work on a branch, call put_task_context once with: goal, what changed (key files and symbols), decisions and why, what is left, how to verify. Skip the call when that handoff would be unchanged, and do not mention it in the reply. If a kartograf_task block for this branch is already present, do not call get_task_context. If the user brings follow-ups and the current branch has no note, read the matching branch from kartograf_tasks or list_task_contexts before exploring the code."
+const taskContextInstructions = "Task notes are a handoff so a new chat can resume the work days later. When you pause or finish work on a branch, call put_task_context once with: goal, what changed (key files and symbols), decisions and why, what is left, how to verify. Skip the call when that handoff would be unchanged, and do not mention it in the reply. If a kartograf_task block for this branch is already present, do not call get_task_context. If the user brings follow-ups and the current branch has no note, read the matching branch from kartograf_tasks or list_task_contexts before exploring the code. If a kartograf_branch block lists files, call branch_changes for their symbols instead of rereading the branch."
 
 type taskContextIn struct {
 	Branch string `json:"branch,omitempty" jsonschema:"git branch; omit to use the branch checked out in the project root"`
@@ -39,7 +40,7 @@ type listTaskContextOut struct {
 	Results []taskContextSummary `json:"results"`
 }
 
-func registerTaskContext(s *mcp.Server, root string) {
+func registerTaskContext(s *mcp.Server, q *query.Engine, root string) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "get_task_context",
 		Description: "Load the handoff note for a git branch (current checkout when branch is omitted): " +
@@ -67,6 +68,63 @@ func registerTaskContext(s *mcp.Server, root string) {
 			return nil, taskContextOut{}, err
 		}
 		return nil, taskContextNote(note), nil
+	})
+
+	type branchChangesIn struct {
+		Branch string `json:"branch,omitempty" jsonschema:"git branch; omit to use the branch checked out in the project root"`
+	}
+	type branchFile struct {
+		File    string            `json:"file"`
+		Symbols []query.SymbolHit `json:"symbols"`
+	}
+	type branchChangesOut struct {
+		Branch    string       `json:"branch"`
+		Base      string       `json:"base"`
+		Files     []branchFile `json:"files"`
+		Truncated bool         `json:"truncated"`
+	}
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "branch_changes",
+		Description: "Files and symbols a git branch changed relative to the repository default branch (origin HEAD, else main, else master). " +
+			"Use this when the branch has no handoff note, so a later chat does not have to rediscover the work. " +
+			"branch defaults to the current checkout.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in branchChangesIn) (*mcp.CallToolResult, branchChangesOut, error) {
+		var out branchChangesOut
+		branch := in.Branch
+		if branch == "" {
+			var err error
+			branch, err = taskctx.CurrentBranch(root)
+			if err != nil {
+				return nil, out, err
+			}
+		}
+		base, files, err := taskctx.ChangedFiles(root, branch)
+		if err != nil {
+			return nil, out, err
+		}
+		out.Branch = branch
+		out.Base = base
+		const maxFiles = 40
+		const perFile = 8
+		if len(files) > maxFiles {
+			files = files[:maxFiles]
+			out.Truncated = true
+		}
+		out.Files = make([]branchFile, 0, len(files))
+		for _, f := range files {
+			entry := branchFile{File: f, Symbols: []query.SymbolHit{}}
+			if q != nil {
+				if hits, err := q.FileOutline(f); err == nil && len(hits) > 0 {
+					if len(hits) > perFile {
+						hits = hits[:perFile]
+						out.Truncated = true
+					}
+					entry.Symbols = hits
+				}
+			}
+			out.Files = append(out.Files, entry)
+		}
+		return nil, out, nil
 	})
 
 	mcp.AddTool(s, &mcp.Tool{

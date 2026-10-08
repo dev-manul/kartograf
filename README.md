@@ -113,6 +113,7 @@ built once after the load), warm run ~1.5s.
 | `get_task_context` | Handoff note for a branch (skip when `<kartograf_task>` for it is already in the chat) |
 | `put_task_context` | Write that handoff when work pauses, so a later chat can resume it (4 KiB; a blank body deletes it) |
 | `list_task_contexts` | Other branches that have a handoff |
+| `branch_changes` | Files and symbols a branch changed since the default branch, for work that has no handoff |
 
 Edges with `resolved=false` are heuristic (calls via `parent::`,
 inferred receiver types, global function fallback); exact edges follow

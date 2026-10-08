@@ -184,8 +184,11 @@ func HookText(root, sessionID string) string {
 		return ""
 	}
 	var b strings.Builder
-	if note, err := Get(root, branch); err == nil && strings.TrimSpace(note.Body) != "" {
+	note, err := Get(root, branch)
+	if err == nil && strings.TrimSpace(note.Body) != "" {
 		writeNote(&b, note)
+	} else {
+		writeChangedFiles(&b, root, branch)
 	}
 	// A follow-up a week later often lands on another branch. List the
 	// other handoffs so the new chat can open the one that matches.

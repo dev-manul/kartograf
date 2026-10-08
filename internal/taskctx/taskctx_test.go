@@ -19,6 +19,13 @@ func initRepo(t *testing.T) string {
 	return root
 }
 
+func writeFile(t *testing.T, root, name, content string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(root, name), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func runGit(t *testing.T, root string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", append([]string{"-C", root}, args...)...)
@@ -234,6 +241,28 @@ func TestHookTextOncePerSession(t *testing.T) {
 	}
 	if HookText(root, "sess-b") != "" {
 		t.Fatal("same session injected twice")
+	}
+}
+
+func TestChangedFiles(t *testing.T) {
+	root := initRepo(t)
+	writeFile(t, root, "a.go", "package a\n")
+	runGit(t, root, "add", "a.go")
+	runGit(t, root, "commit", "-m", "add a")
+	runGit(t, root, "checkout", "-b", "feature/pay")
+	writeFile(t, root, "b.go", "package b\n")
+	runGit(t, root, "add", "b.go")
+	runGit(t, root, "commit", "-m", "add b")
+
+	base, files, err := ChangedFiles(root, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if base != "main" {
+		t.Fatalf("base = %q", base)
+	}
+	if len(files) != 1 || files[0] != "b.go" {
+		t.Fatalf("files = %v", files)
 	}
 }
 
