@@ -1,0 +1,45 @@
+{
+  "manifest_version": "0.3",
+  "name": "kartograf",
+  "display_name": "kartograf",
+  "version": "0.0.0",
+  "description": "Code map (symbols, references, call graph) of PHP, Go and TypeScript projects for AI agents.",
+  "long_description": "kartograf indexes a project with tree-sitter into SQLite (incremental, FTS5) and serves it over MCP: symbol search, declarations with source, references, callers and callees, class hierarchy, impact analysis, full-text code search and a per-branch handoff note that lets a new chat resume a task. PHP, Go and TypeScript/JavaScript are supported; an optional enrichment layer (go/types, PHPStan) adds exact type-resolved edges. Everything runs locally; the index lives in the user cache directory.",
+  "author": {
+    "name": "dev-manul",
+    "url": "https://github.com/dev-manul"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dev-manul/kartograf.git"
+  },
+  "homepage": "https://github.com/dev-manul/kartograf",
+  "documentation": "https://github.com/dev-manul/kartograf#readme",
+  "support": "https://github.com/dev-manul/kartograf/issues",
+  "icon": "icon.png",
+  "server": {
+    "type": "binary",
+    "entry_point": "server/kartograf",
+    "mcp_config": {
+      "command": "${__dirname}/server/kartograf",
+      "args": ["serve", "${user_config.project_dir}"],
+      "env": {
+        "KARTOGRAF_NO_UPDATE_CHECK": "1"
+      }
+    }
+  },
+  "tools": [],
+  "keywords": ["code-map", "call-graph", "code-search", "tree-sitter", "php", "go", "typescript"],
+  "license": "MIT",
+  "compatibility": {
+    "platforms": ["darwin", "linux"]
+  },
+  "user_config": {
+    "project_dir": {
+      "type": "directory",
+      "title": "Project directory",
+      "description": "Root of the codebase to index and serve: one repository, or a folder of repositories.",
+      "required": true
+    }
+  }
+}

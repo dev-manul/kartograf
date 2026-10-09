@@ -1,0 +1,21 @@
+#!/bin/sh
+# MCPB entry point. The bundle carries one kartograf binary per
+# OS/arch (MCPB can override per OS but not per CPU), so this picks
+# the right one and execs it with the arguments from manifest.json.
+set -e
+dir=$(cd "$(dirname "$0")" && pwd)
+os=$(uname -s | tr '[:upper:]' '[:lower:]')
+case "$(uname -m)" in
+	x86_64 | amd64) arch=amd64 ;;
+	arm64 | aarch64) arch=arm64 ;;
+	*) arch=$(uname -m) ;;
+esac
+bin="$dir/kartograf-$os-$arch"
+if [ ! -f "$bin" ]; then
+	echo "kartograf: this bundle has no binary for $os/$arch" >&2
+	exit 1
+fi
+# Hosts restore the executable bit on the entry point; the others may
+# arrive without it.
+[ -x "$bin" ] || chmod +x "$bin"
+exec "$bin" "$@"

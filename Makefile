@@ -7,8 +7,9 @@ VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -ldflags "-X main.version=$(VERSION)"
 GOFLAGS := -tags $(GOTAGS) $(LDFLAGS)
 BIN     := bin/kartograf
+HOST     = $(shell go env GOOS)-$(shell go env GOARCH)
 
-.PHONY: all build install test vet fmt check clean version
+.PHONY: all build install test vet fmt check clean version mcpb serverjson
 
 all: build
 
@@ -36,9 +37,19 @@ fmt:
 ## check: full pre-commit check
 check: vet test fmt build
 
+## mcpb: MCP bundle of this machine's binary in dist/ (CI bundles all four)
+mcpb: build
+	mkdir -p dist
+	cp $(BIN) dist/kartograf-$(HOST)
+	MCPB_PLATFORMS=$(HOST) scripts/mcpb.sh $(VERSION) dist
+
+## serverjson: point server.json at a release, e.g. make serverjson VERSION=v0.1.20
+serverjson:
+	scripts/server-json.sh $(VERSION) $(MCPB)
+
 ## clean: remove build artifacts
 clean:
-	rm -rf bin
+	rm -rf bin dist
 
 ## version: print the version that will be stamped into the binary
 version:

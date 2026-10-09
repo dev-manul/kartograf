@@ -57,6 +57,11 @@ and follow the instructions to install the kartograf MCP server for
 this project.
 ```
 
+Claude Desktop: скачайте `kartograf.mcpb` из
+[последнего релиза](https://github.com/dev-manul/kartograf/releases/latest)
+и откройте его. Claude Desktop установит сервер и спросит папку
+проекта.
+
 ## Сборка из исходников
 
 Сборка требует build-тег `sqlite_fts5` (FTS5 в mattn/go-sqlite3);
@@ -300,6 +305,7 @@ stats:
 
 - [docs/install-prompt.md](docs/install-prompt.md) — инструкции установки для AI-агентов
 - [docs/cursor.md](docs/cursor.md) — MCP в Cursor (`type: stdio`, troubleshooting)
+- [docs/PUBLISHING.md](docs/PUBLISHING.md) — MCP-бандл, реестр MCP и каталоги
 
 ## Отладка грамматик
 

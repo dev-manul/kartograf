@@ -2,6 +2,8 @@
 # cgo (tree-sitter, sqlite) rules out easy cross-compilation, so each
 # target builds on its native runner. The release body is a short
 # changelog: commit subjects since the previous v* tag.
+# Each release also carries the MCP bundle (kartograf.mcpb) and the
+# matching MCP registry entry (server.json); see docs/PUBLISHING.md.
 name: release
 
 on:
@@ -56,6 +58,8 @@ jobs:
   release:
     needs: build
     runs-on: ubuntu-latest
+    env:
+      VERSION: v0.1.${{ github.run_number }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -80,13 +84,64 @@ jobs:
             echo
             echo KARTOGRAF_CHANGELOG_END
           } >> "$GITHUB_OUTPUT"
-      - run: sha256sum kartograf-* > SHA256SUMS
+      - name: MCP bundles and registry entry
+        # kartograf.mcpb carries all four binaries (MCP registry, Claude
+        # Desktop); Smithery caps bundles at 25 MB, so it gets a
+        # single-platform one.
+        run: |
+          scripts/mcpb.sh "$VERSION" .
+          MCPB_PLATFORMS=darwin-arm64 scripts/mcpb.sh "$VERSION" . kartograf-darwin-arm64.mcpb
+          scripts/server-json.sh "$VERSION" kartograf.mcpb server.json
+      - run: sha256sum kartograf-* kartograf.mcpb > SHA256SUMS
       - uses: softprops/action-gh-release@v3
         with:
-          tag_name: v0.1.${{ github.run_number }}
-          name: v0.1.${{ github.run_number }}
+          tag_name: ${{ env.VERSION }}
+          name: ${{ env.VERSION }}
           body: ${{ steps.notes.outputs.body }}
           files: |
             kartograf-*
+            kartograf.mcpb
+            server.json
             SHA256SUMS
           fail_on_unmatched_files: true
+
+  # Publishes the release's server.json to registry.modelcontextprotocol.io
+  # with GitHub OIDC (no secret). Off until the repository variable
+  # MCP_REGISTRY_PUBLISH is set to "true".
+  mcp-registry:
+    needs: release
+    if: vars.MCP_REGISTRY_PUBLISH == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      VERSION: v0.1.${{ github.run_number }}
+    steps:
+      - run: curl -fsSL -o server.json "https://github.com/${{ github.repository }}/releases/download/$VERSION/server.json"
+      - name: Install mcp-publisher
+        run: curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
+      - run: ./mcp-publisher login github-oidc
+      - run: ./mcp-publisher publish server.json
+
+  # Uploads the single-platform bundle to Smithery. Skipped until the
+  # SMITHERY_API_KEY secret exists; a Smithery failure never fails the
+  # release.
+  smithery:
+    needs: release
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    permissions:
+      contents: read
+    env:
+      VERSION: v0.1.${{ github.run_number }}
+      SMITHERY_API_KEY: ${{ secrets.SMITHERY_API_KEY }}
+    steps:
+      - name: Publish to Smithery
+        run: |
+          if [ -z "$SMITHERY_API_KEY" ]; then
+            echo "SMITHERY_API_KEY is not set; skipping"
+            exit 0
+          fi
+          curl -fsSL -o kartograf-darwin-arm64.mcpb "https://github.com/${{ github.repository }}/releases/download/$VERSION/kartograf-darwin-arm64.mcpb"
+          npx --yes @smithery/cli@4.11.1 mcp publish ./kartograf-darwin-arm64.mcpb -n dev-manul/kartograf

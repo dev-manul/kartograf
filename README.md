@@ -57,6 +57,11 @@ and follow the instructions to install the kartograf MCP server for
 this project.
 ```
 
+Claude Desktop: download `kartograf.mcpb` from the
+[latest release](https://github.com/dev-manul/kartograf/releases/latest)
+and open it. Claude Desktop installs the server and asks for the
+project directory.
+
 ## Building from source
 
 The build requires the `sqlite_fts5` build tag (FTS5 support in
@@ -298,6 +303,7 @@ Files with syntax errors are parsed best-effort and flagged
 
 - [docs/install-prompt.md](docs/install-prompt.md) — AI agent install instructions
 - [docs/cursor.md](docs/cursor.md) — Cursor MCP setup (`type: stdio`, troubleshooting)
+- [docs/PUBLISHING.md](docs/PUBLISHING.md) — MCP bundle, MCP registry and catalog listings
 
 ## Grammar debugging
 
